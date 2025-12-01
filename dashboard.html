@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>cLocked In Dashboard</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f3f4f6; margin: 0; display: flex; height: 100vh; overflow: hidden; }
+        
+        /* Sidebar */
+        .sidebar { width: 250px; background: white; padding: 20px; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; }
+        .logo { font-size: 1.5rem; font-weight: bold; margin-bottom: 40px; color: #111; }
+        .stat-card { background: #f9fafb; padding: 15px; border-radius: 8px; margin-bottom: 15px; }
+        .stat-val { font-size: 1.5rem; font-weight: bold; color: #3b82f6; }
+        .stat-label { font-size: 0.9rem; color: #6b7280; }
+
+        /* Main Calendar Area */
+        .main { flex: 1; padding: 20px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; }
+        
+        .cal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-shrink: 0; }
+        .cal-title { font-size: 2rem; font-weight: bold; }
+        .cal-nav button { padding: 8px 16px; font-size: 1rem; cursor: pointer; background: white; border: 1px solid #ddd; border-radius: 6px; }
+
+        /* Grid */
+        .calendar { 
+            display: grid; 
+            grid-template-columns: repeat(7, 1fr); 
+            grid-template-rows: auto repeat(6, 1fr); /* Header + 6 rows */
+            gap: 8px; 
+            background: #e5e7eb; 
+            border: 1px solid #e5e7eb;
+            flex: 1;
+            overflow: hidden;
+        }
+        
+        .day-header { background: #f9fafb; padding: 10px; text-align: center; font-weight: bold; color: #666; }
+        
+        .day-cell { 
+            background: white; 
+            padding: 8px; 
+            position: relative; 
+            overflow-y: auto;
+        }
+        .day-cell.empty { background: #f9fafb; }
+        .day-number { font-weight: bold; color: #374151; margin-bottom: 5px; }
+        .day-today { background: #eff6ff; }
+        
+        /* Task Chips */
+        .task-chip {
+            background: #dbeafe;
+            color: #1e40af;
+            font-size: 0.8rem;
+            padding: 4px 6px;
+            border-radius: 4px;
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            border-left: 3px solid #2563eb;
+        }
+        .task-chip:hover { transform: translateY(-1px); box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="logo">cLocked In</div>
+        <div class="stat-card">
+            <div class="stat-val" id="total-tasks">0</div>
+            <div class="stat-label">Tasks Completed Total</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-val" id="total-hours">0h</div>
+            <div class="stat-label">Productive Time</div>
+        </div>
+    </div>
+
+    <div class="main">
+        <div class="cal-header">
+            <div class="cal-title" id="cal-month-year">November 2025</div>
+            <div class="cal-nav">
+                <button id="prev-month">&larr; Prev</button>
+                <button id="today-btn">Today</button>
+                <button id="next-month">Next &rarr;</button>
+            </div>
+        </div>
+
+        <div class="calendar" id="calendar-grid">
+        </div>
+    </div>
+
+    <script src="dashboard.js"></script>
+</body>
+</html>

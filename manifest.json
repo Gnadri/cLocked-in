@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "cLocked in: Time & Task Tracker",
+  "version": "1.0",
+  "description": "Track web usage, log offline tasks, and enforce site limits.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "cLocked in"
+  }
+}

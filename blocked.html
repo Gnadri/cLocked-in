@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Time's Up!</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #f87171;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            text-align: center;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 40px;
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+        }
+        h1 { font-size: 3rem; margin: 0; }
+        p { font-size: 1.2rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛑 Limit Exceeded</h1>
+        <p>You have used up your time for <span id="site-name">this site</span>.</p>
+        <p>Get back to your productive tasks!</p>
+    </div>
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        document.getElementById('site-name').innerText = params.get('site') || 'this site';
+    </script>
+</body>
+</html>
+
+
