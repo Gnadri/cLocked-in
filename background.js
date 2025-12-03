@@ -39,31 +39,45 @@ setInterval(() => {
 
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 
-    chrome.storage.local.get(['trackerData', 'collections', 'currentActivity'], (result) => {
+    chrome.storage.local.get(['trackerData', 'collections', 'activeActivities'], (result) => {
       let data = result.trackerData || {};
-      
-      // Initialize day if not exists
-      if (!data[today]) data[today] = {};
-      
-      // Increment time for domain (seconds)
-      if (!data[today][domain]) data[today][domain] = 0;
-      data[today][domain] += 1;
-
-      // Save back to storage
-      chrome.storage.local.set({ trackerData: data });
-
-      // CHECK LIMITS, BLOCKED CATEGORIES & ACTIVITIES
       const collections = result.collections || [];
-      const currentActivity = result.currentActivity;
+      let activeActivities = result.activeActivities || [];
 
-      // Check if activity expired
-      if (currentActivity && currentActivity.endTime) {
-          if (Date.now() > currentActivity.endTime) {
-              chrome.storage.local.remove('currentActivity');
-              return; // Stop blocking immediately
+      // Check if any activity expired
+      let changed = false;
+      const now = Date.now();
+      activeActivities = activeActivities.filter(act => {
+          if (act.endTime && now > act.endTime) {
+              changed = true;
+              return false; 
           }
+          return true;
+      });
+      
+      if (changed) {
+          chrome.storage.local.set({activeActivities});
       }
 
+      // Check if current URL is an exception in ANY active activity
+      // If so, do NOT count towards usage stats
+      const isGlobalException = activeActivities.some(act => 
+          act.exceptions && act.exceptions.some(ex => currentUrl.includes(ex))
+      );
+
+      if (!isGlobalException) {
+          // Initialize day if not exists
+          if (!data[today]) data[today] = {};
+          
+          // Increment time for domain (seconds)
+          if (!data[today][domain]) data[today][domain] = 0;
+          data[today][domain] += 1;
+
+          // Save back to storage
+          chrome.storage.local.set({ trackerData: data });
+      }
+
+      // CHECK LIMITS, BLOCKED CATEGORIES & ACTIVITIES
       let shouldBlock = false;
       let redirectTarget = chrome.runtime.getURL(`blocked.html?site=${domain}`);
 
@@ -88,28 +102,27 @@ setInterval(() => {
               shouldBlock = true;
           }
 
-          // Check if category is blocked by current activity
-          if (currentActivity && currentActivity.blockedCategoryIds) {
-              if (currentActivity.blockedCategoryIds.includes(col.id)) {
-                  shouldBlock = true;
-                  if (currentActivity.redirectUrl) {
-                      // Ensure protocol exists
-                      let url = currentActivity.redirectUrl;
-                      if (!url.startsWith('http')) url = 'https://' + url;
-                      redirectTarget = url;
+          // Check if category is blocked by ANY active activity
+          activeActivities.forEach(act => {
+              if (act.blockedCategoryIds && act.blockedCategoryIds.includes(col.id)) {
+                  // This activity wants to block this site
+                  // Check exceptions for THIS activity
+                  const isException = act.exceptions && act.exceptions.some(ex => currentUrl.includes(ex));
+                  
+                  if (!isException) {
+                      shouldBlock = true;
+                      if (act.redirectUrl) {
+                          // Ensure protocol exists
+                          let url = act.redirectUrl;
+                          if (!url.startsWith('http')) url = 'https://' + url;
+                          redirectTarget = url;
+                      }
                   }
               }
-          }
+          });
       }
 
       if (shouldBlock) {
-          // CHECK EXCEPTIONS
-          if (currentActivity && currentActivity.exceptions) {
-              // If any exception string is found in the current URL, allow it.
-              const isException = currentActivity.exceptions.some(ex => currentUrl.includes(ex));
-              if (isException) return; 
-          }
-
           // Avoid redirect loops
           // If we are already on the redirect target (or close enough), don't redirect
           if (currentUrl.startsWith(redirectTarget)) return;

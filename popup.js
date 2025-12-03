@@ -1,6 +1,12 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // Helper: Get Local Date String (YYYY-MM-DD)
+    const getLocalTodayStr = () => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    };
+
     // --- DATE STATE ---
-    let currentDate = new Date().toISOString().split('T')[0];
+    let currentDate = getLocalTodayStr();
     const datePicker = document.getElementById('date-picker');
     const btnPrevDate = document.getElementById('btn-prev-date');
     const btnNextDate = document.getElementById('btn-next-date');
@@ -69,6 +75,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const COLORS = [
         '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', 
         '#E7E9ED', '#76ff03', '#f06292', '#00e676'
+    ];
+
+    const FOLDER_COLORS = [
+        '#3b82f6', // Blue (Default)
+        '#ef4444', // Red
+        '#10b981', // Green
+        '#f59e0b', // Amber
+        '#8b5cf6', // Violet
+        '#ec4899', // Pink
+        '#6366f1', // Indigo
+        '#14b8a6'  // Teal
     ];
 
     // --- STATE: Collections ---
@@ -332,7 +349,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize
     renderStats();
     setInterval(() => {
-        const today = new Date().toISOString().split('T')[0];
+        const today = getLocalTodayStr();
         if(currentDate === today) {
             renderStats();
         }
@@ -340,15 +357,71 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- ACTIVITIES LOGIC ---
     const btnNewActivity = document.getElementById('btn-new-activity');
+    const btnNewTaskFolder = document.getElementById('btn-new-task-folder');
+    const btnSaveTaskFolder = document.getElementById('btn-save-task-folder');
+    const modalCreateTaskFolder = document.getElementById('modal-create-task-folder');
+    const btnTaskBack = document.getElementById('btn-task-back');
+    const taskBreadcrumbs = document.getElementById('task-breadcrumbs');
+    const taskFolderTitle = document.getElementById('task-folder-title');
+    const folderSettingsTrigger = document.getElementById('folder-settings-trigger');
+    const folderInlinePicker = document.getElementById('folder-inline-color-picker');
+    const folderInlineColors = document.getElementById('folder-inline-colors');
+    
     // modalCreateActivity moved to top scope
     const btnSaveActivity = document.getElementById('btn-save-activity');
     const activeContainer = document.getElementById('active-activity-container');
-    const activeNameDisplay = document.getElementById('active-activity-name');
-    const activeTimerDisplay = document.getElementById('active-activity-timer');
-    const btnStopActivity = document.getElementById('btn-stop-activity');
-    const btnCompleteActivity = document.getElementById('btn-complete-activity');
+    // Removed static ID references for active task elements
     let activityInterval;
     let editingActivityId = null; // Track if we are editing
+    let currentTaskFolderId = null; // Track current folder view
+
+    // Toggle Inline Picker
+    if(folderSettingsTrigger) {
+        folderSettingsTrigger.addEventListener('click', () => {
+            if(folderInlinePicker.style.display === 'none') {
+                folderInlinePicker.style.display = 'block';
+                renderInlineColorPicker();
+            } else {
+                folderInlinePicker.style.display = 'none';
+            }
+        });
+    }
+
+    function renderInlineColorPicker() {
+        folderInlineColors.innerHTML = '';
+        FOLDER_COLORS.forEach(color => {
+            const swatch = document.createElement('div');
+            swatch.style.width = '24px';
+            swatch.style.height = '24px';
+            swatch.style.borderRadius = '50%';
+            swatch.style.backgroundColor = color;
+            swatch.style.cursor = 'pointer';
+            swatch.style.border = '2px solid transparent';
+            
+            swatch.addEventListener('click', () => {
+                updateFolderColor(currentTaskFolderId, color);
+            });
+            
+            folderInlineColors.appendChild(swatch);
+        });
+    }
+
+    function updateFolderColor(folderId, color) {
+        chrome.storage.local.get(['taskFolders'], (result) => {
+            const folders = result.taskFolders || [];
+            const folder = folders.find(f => f.id === folderId);
+            if(folder) {
+                folder.color = color;
+                chrome.storage.local.set({taskFolders: folders}, () => {
+                    folderSettingsTrigger.style.backgroundColor = color;
+                    folderInlinePicker.style.display = 'none';
+                    showNotification('Folder color updated');
+                    // Re-render to update any visible UI dependent on color
+                    renderActivitiesList(); 
+                });
+            }
+        });
+    }
 
     // Open Create Activity Modal
     if(btnNewActivity) {
@@ -361,12 +434,103 @@ document.addEventListener('DOMContentLoaded', () => {
             document.querySelector('#modal-create-activity .modal-header span:first-child').innerText = 'New Task';
             document.getElementById('btn-save-activity').innerText = 'Create Task';
             
+            // Pre-select current folder if inside one
+            renderTaskFolderSelect(currentTaskFolderId);
+
             modalOverlay.style.display = 'flex';
             modalSelect.style.display = 'none';
             modalCreate.style.display = 'none';
             modalDetails.style.display = 'none';
+            modalCreateTaskFolder.style.display = 'none';
             modalCreateActivity.style.display = 'block';
             renderCategorySelect();
+        });
+    }
+
+    // Open Create Folder Modal
+    if(btnNewTaskFolder) {
+        btnNewTaskFolder.addEventListener('click', () => {
+            document.getElementById('new-task-folder-name').value = '';
+            
+            // Render Color Picker
+            const picker = document.getElementById('folder-color-picker');
+            const inputColor = document.getElementById('new-task-folder-color');
+            picker.innerHTML = '';
+            inputColor.value = FOLDER_COLORS[0]; // Default
+
+            FOLDER_COLORS.forEach(color => {
+                const swatch = document.createElement('div');
+                swatch.style.width = '24px';
+                swatch.style.height = '24px';
+                swatch.style.borderRadius = '50%';
+                swatch.style.backgroundColor = color;
+                swatch.style.cursor = 'pointer';
+                swatch.style.border = color === inputColor.value ? '2px solid #333' : '2px solid transparent';
+                
+                swatch.addEventListener('click', () => {
+                    inputColor.value = color;
+                    // Update selection visual
+                    Array.from(picker.children).forEach(c => c.style.border = '2px solid transparent');
+                    swatch.style.border = '2px solid #333';
+                });
+                
+                picker.appendChild(swatch);
+            });
+
+            modalOverlay.style.display = 'flex';
+            modalSelect.style.display = 'none';
+            modalCreate.style.display = 'none';
+            modalDetails.style.display = 'none';
+            modalCreateActivity.style.display = 'none';
+            modalCreateTaskFolder.style.display = 'block';
+        });
+    }
+
+    // Save Task Folder
+    if(btnSaveTaskFolder) {
+        btnSaveTaskFolder.addEventListener('click', () => {
+            const name = document.getElementById('new-task-folder-name').value.trim();
+            const color = document.getElementById('new-task-folder-color').value;
+            if(name) {
+                chrome.storage.local.get(['taskFolders'], (result) => {
+                    const folders = result.taskFolders || [];
+                    folders.push({
+                        id: Date.now().toString(),
+                        name: name,
+                        color: color
+                    });
+                    chrome.storage.local.set({taskFolders: folders}, () => {
+                        modalOverlay.style.display = 'none';
+                        modalCreateTaskFolder.style.display = 'none';
+                        renderActivitiesList();
+                        showNotification('Folder created');
+                    });
+                });
+            }
+        });
+    }
+
+    // Back Button Logic
+    if(btnTaskBack) {
+        btnTaskBack.addEventListener('click', () => {
+            currentTaskFolderId = null;
+            renderActivitiesList();
+        });
+    }
+
+    function renderTaskFolderSelect(selectedId = null) {
+        chrome.storage.local.get(['taskFolders'], (result) => {
+            const folders = result.taskFolders || [];
+            const select = document.getElementById('new-activity-folder');
+            select.innerHTML = '<option value="">No Folder (Root)</option>';
+            
+            folders.forEach(f => {
+                const opt = document.createElement('option');
+                opt.value = f.id;
+                opt.innerText = f.name;
+                if(f.id === selectedId) opt.selected = true;
+                select.appendChild(opt);
+            });
         });
     }
 
@@ -404,6 +568,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const name = document.getElementById('new-activity-name').value.trim();
             const duration = document.getElementById('new-activity-duration').value.trim();
             const redirect = document.getElementById('new-activity-redirect').value.trim();
+            const folderId = document.getElementById('new-activity-folder').value;
             const exceptionsRaw = document.getElementById('new-activity-exceptions').value;
             const exceptions = exceptionsRaw.split('\n').map(e => e.trim()).filter(e => e);
             
@@ -424,7 +589,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                 duration: duration ? parseInt(duration) : null,
                                 redirectUrl: redirect,
                                 exceptions: exceptions,
-                                blockedCategoryIds: selectedCats
+                                blockedCategoryIds: selectedCats,
+                                folderId: folderId || null
                             };
                             showNotification('Task updated');
                         }
@@ -436,7 +602,8 @@ document.addEventListener('DOMContentLoaded', () => {
                             duration: duration ? parseInt(duration) : null,
                             redirectUrl: redirect,
                             exceptions: exceptions,
-                            blockedCategoryIds: selectedCats
+                            blockedCategoryIds: selectedCats,
+                            folderId: folderId || null
                         });
                         showNotification('Task created');
                     }
@@ -453,28 +620,166 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function assignTaskToFolder(taskId, folderId) {
+        chrome.storage.local.get(['activities', 'taskFolders'], (result) => {
+            const acts = result.activities || [];
+            const folders = result.taskFolders || [];
+            const taskIndex = acts.findIndex(a => a.id === taskId);
+            const folder = folders.find(f => f.id === folderId);
+            
+            if(taskIndex !== -1 && folder) {
+                acts[taskIndex].folderId = folderId;
+                chrome.storage.local.set({activities: acts}, () => {
+                    renderActivitiesList();
+                    showNotification(`Moved to ${folder.name}`);
+                });
+            }
+        });
+    }
+
     // Render Activities List
     function renderActivitiesList() {
-        chrome.storage.local.get(['activities', 'currentActivity'], (result) => {
+        chrome.storage.local.get(['activities', 'activeActivities', 'taskFolders'], (result) => {
             const list = document.getElementById('activities-list');
             if(!list) return;
             list.innerHTML = '';
             const acts = result.activities || [];
-            const current = result.currentActivity;
+            const activeActs = result.activeActivities || [];
+            const folders = result.taskFolders || [];
 
-            // If activity is running, show active container
-            if(current) {
+            // Handle Breadcrumbs
+            if(currentTaskFolderId) {
+                const currentFolder = folders.find(f => f.id === currentTaskFolderId);
+                taskBreadcrumbs.style.display = 'flex';
+                taskFolderTitle.innerText = currentFolder ? currentFolder.name : 'Unknown Folder';
+                
+                // Update trigger color
+                if(currentFolder && currentFolder.color) {
+                    folderSettingsTrigger.style.backgroundColor = currentFolder.color;
+                } else {
+                    folderSettingsTrigger.style.backgroundColor = '#fff';
+                }
+                
+                // Hide picker by default when entering
+                folderInlinePicker.style.display = 'none';
+            } else {
+                taskBreadcrumbs.style.display = 'none';
+            }
+
+            // Render Active Activities (Always at top)
+            if(activeActs.length > 0) {
                 activeContainer.style.display = 'block';
-                activeNameDisplay.innerText = current.name;
-                startActivityTimer(current);
+                activeContainer.innerHTML = '<div style="font-size:12px; color:#1976d2; font-weight:bold; text-transform:uppercase; margin-bottom:10px;">Current Focus</div>';
+                
+                activeActs.forEach(current => {
+                    const div = document.createElement('div');
+                    div.className = 'active-task-item';
+                    div.style.marginBottom = '15px';
+                    div.style.borderBottom = '1px solid #bbdefb';
+                    div.style.paddingBottom = '15px';
+                    div.innerHTML = `
+                        <div style="font-size:18px; font-weight:bold; margin:5px 0; color:#0d47a1;">${current.name}</div>
+                        <div id="timer-${current.id}" class="timer-big" style="font-size:24px; margin:10px 0;">00:00:00</div>
+                        <div style="display:flex; gap:10px; justify-content:center;">
+                            <button class="btn btn-red btn-stop-task" data-id="${current.id}" style="flex:1;">Stop</button>
+                            <button class="btn btn-green btn-complete-task" data-id="${current.id}" style="flex:3;">Complete Task</button>
+                        </div>
+                    `;
+                    activeContainer.appendChild(div);
+                    
+                    // Attach listeners
+                    div.querySelector('.btn-stop-task').addEventListener('click', () => stopTask(current.id));
+                    div.querySelector('.btn-complete-task').addEventListener('click', () => completeTask(current.id));
+                });
+                
+                // Remove last border
+                if(activeContainer.lastElementChild) activeContainer.lastElementChild.style.borderBottom = 'none';
+
+                startActivityTimer(activeActs);
             } else {
                 activeContainer.style.display = 'none';
                 clearInterval(activityInterval);
             }
 
-            acts.forEach(act => {
+            // Render Folders (Only at root level)
+            if(!currentTaskFolderId) {
+                folders.forEach(folder => {
+                    const item = document.createElement('div');
+                    item.className = 'collection-item';
+                    const folderColor = folder.color || '#f57f17'; // Default orange if not set
+                    
+                    // Tint background slightly
+                    item.style.backgroundColor = '#fff'; 
+                    item.style.borderLeft = `4px solid ${folderColor}`;
+                    
+                    // Drag & Drop Events
+                    item.addEventListener('dragover', (e) => {
+                        e.preventDefault();
+                        item.style.backgroundColor = `${folderColor}20`; // Light tint
+                    });
+                    item.addEventListener('dragleave', () => {
+                        item.style.backgroundColor = '#fff';
+                    });
+                    item.addEventListener('drop', (e) => {
+                        e.preventDefault();
+                        item.style.backgroundColor = '#fff';
+                        const taskId = e.dataTransfer.getData('text/plain');
+                        if(taskId) assignTaskToFolder(taskId, folder.id);
+                    });
+
+                    // Count tasks in this folder
+                    const count = acts.filter(a => a.folderId === folder.id).length;
+
+                    item.innerHTML = `
+                        <div class="collection-thumb" style="background:${folderColor}20; color:${folderColor};">📂</div>
+                        <div class="collection-info">
+                            <div class="collection-name">${folder.name}</div>
+                            <div class="collection-count">${count} tasks</div>
+                        </div>
+                        <div class="btn-delete-folder" style="cursor:pointer; padding:6px; color:#ff6b6b; margin-left:5px;">✕</div>
+                    `;
+
+                    item.addEventListener('click', () => {
+                        currentTaskFolderId = folder.id;
+                        renderActivitiesList();
+                    });
+
+                    item.querySelector('.btn-delete-folder').addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        if(confirm('Delete folder? Tasks inside will be moved to root.')) {
+                            // Move tasks to root
+                            const updatedActs = acts.map(a => {
+                                if(a.folderId === folder.id) return {...a, folderId: null};
+                                return a;
+                            });
+                            const updatedFolders = folders.filter(f => f.id !== folder.id);
+                            
+                            chrome.storage.local.set({
+                                activities: updatedActs,
+                                taskFolders: updatedFolders
+                            }, renderActivitiesList);
+                        }
+                    });
+
+                    list.appendChild(item);
+                });
+            }
+
+            // Render Tasks (Filtered by Folder)
+            const filteredActs = acts.filter(act => {
+                if(currentTaskFolderId) return act.folderId === currentTaskFolderId;
+                return true; // Show ALL tasks in root (as requested)
+            });
+
+            filteredActs.forEach(act => {
                 const item = document.createElement('div');
                 item.className = 'collection-item';
+                item.setAttribute('draggable', true);
+                
+                item.addEventListener('dragstart', (e) => {
+                    e.dataTransfer.setData('text/plain', act.id);
+                });
+
                 const durationText = act.duration ? ` • ${act.duration}m` : '';
                 item.innerHTML = `
                     <div class="collection-thumb" style="background:#e3f2fd; color:#1976d2;">⚡</div>
@@ -497,10 +802,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     document.querySelector('#modal-create-activity .modal-header span:first-child').innerText = 'Edit Task';
                     document.getElementById('btn-save-activity').innerText = 'Save Changes';
 
+                    renderTaskFolderSelect(act.folderId);
+
                     modalOverlay.style.display = 'flex';
                     modalSelect.style.display = 'none';
                     modalCreate.style.display = 'none';
                     modalDetails.style.display = 'none';
+                    modalCreateTaskFolder.style.display = 'none';
                     modalCreateActivity.style.display = 'block';
                     
                     renderCategorySelect(act.blockedCategoryIds);
@@ -509,8 +817,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Start Button
                 item.querySelector('.btn-start-activity').addEventListener('click', (e) => {
                     e.stopPropagation();
-                    if(current) {
-                        showNotification('Stop current activity first');
+                    // Check if already active
+                    if(activeActs.find(a => a.id === act.id)) {
+                        showNotification('Task already active');
                         return;
                     }
                     startActivity(act);
@@ -531,78 +840,114 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function startActivity(act) {
-        const current = {
-            id: act.id,
-            name: act.name,
-            startTime: Date.now(),
-            duration: act.duration,
-            endTime: act.duration ? Date.now() + (act.duration * 60 * 1000) : null,
-            redirectUrl: act.redirectUrl,
-            exceptions: act.exceptions,
-            blockedCategoryIds: act.blockedCategoryIds
-        };
-        chrome.storage.local.set({currentActivity: current}, () => {
-            renderActivitiesList();
-            showNotification(`Started ${act.name}`);
-        });
-    }
-
-    if(btnStopActivity) {
-        btnStopActivity.addEventListener('click', () => {
-            clearCurrentActivity('Activity stopped');
-        });
-    }
-
-    if(btnCompleteActivity) {
-        btnCompleteActivity.addEventListener('click', () => {
-            chrome.storage.local.get(['currentActivity', 'taskHistory'], (result) => {
-                const current = result.currentActivity;
-                if (current) {
-                    const history = result.taskHistory || [];
-                    const completedTask = {
-                        ...current,
-                        endTime: Date.now(),
-                        date: new Date().toISOString().split('T')[0]
-                    };
-                    history.push(completedTask);
-                    chrome.storage.local.set({taskHistory: history}, () => {
-                        clearCurrentActivity('Task completed');
-                    });
-                } else {
-                    clearCurrentActivity('Task completed');
-                }
+        chrome.storage.local.get(['activeActivities'], (res) => {
+            let current = res.activeActivities || [];
+            const newActive = {
+                id: act.id,
+                name: act.name,
+                startTime: Date.now(),
+                duration: act.duration,
+                endTime: act.duration ? Date.now() + (act.duration * 60 * 1000) : null,
+                redirectUrl: act.redirectUrl,
+                exceptions: act.exceptions,
+                blockedCategoryIds: act.blockedCategoryIds,
+                folderId: act.folderId // Pass folderId to active state
+            };
+            current.push(newActive);
+            chrome.storage.local.set({activeActivities: current}, () => {
+                renderActivitiesList();
+                showNotification(`Started ${act.name}`);
             });
         });
     }
 
-    function clearCurrentActivity(message) {
-        chrome.storage.local.remove('currentActivity', () => {
-            renderActivitiesList();
-            if(message) showNotification(message);
+    function stopTask(id) {
+        chrome.storage.local.get(['activeActivities'], (res) => {
+            let current = res.activeActivities || [];
+            current = current.filter(a => a.id !== id);
+            chrome.storage.local.set({activeActivities: current}, () => {
+                renderActivitiesList();
+                showNotification('Activity stopped');
+            });
         });
     }
 
-    function startActivityTimer(current) {
+    function completeTask(id) {
+        chrome.storage.local.get(['activeActivities', 'trackerData', 'taskHistory', 'taskFolders'], (res) => {
+            let current = res.activeActivities || [];
+            let trackerData = res.trackerData || {};
+            let taskHistory = res.taskHistory || [];
+            let folders = res.taskFolders || [];
+            
+            const taskIndex = current.findIndex(a => a.id === id);
+            if (taskIndex !== -1) {
+                const task = current[taskIndex];
+                const now = Date.now();
+                // Calculate duration in seconds
+                const elapsedSeconds = Math.floor((now - task.startTime) / 1000);
+                
+                const today = getLocalTodayStr();
+
+                // Update Tracker Data for today (Popup Stats)
+                if (!trackerData[today]) trackerData[today] = {};
+                if (!trackerData[today][task.name]) trackerData[today][task.name] = 0;
+                trackerData[today][task.name] += elapsedSeconds;
+
+                // Determine Color
+                let taskColor = '#3b82f6'; // Default Blue
+                if (task.folderId) {
+                    const folder = folders.find(f => f.id === task.folderId);
+                    if (folder && folder.color) {
+                        taskColor = folder.color;
+                    }
+                }
+
+                // Update Task History (Dashboard Calendar)
+                taskHistory.push({
+                    name: task.name,
+                    startTime: task.startTime,
+                    endTime: now,
+                    date: today,
+                    color: taskColor
+                });
+
+                // Remove from active list
+                current.splice(taskIndex, 1);
+                
+                chrome.storage.local.set({
+                    activeActivities: current,
+                    trackerData: trackerData,
+                    taskHistory: taskHistory
+                }, () => {
+                    renderActivitiesList();
+                    showNotification('Task Completed! 🎉');
+                });
+            }
+        });
+    }
+
+    function startActivityTimer(activeActs) {
         clearInterval(activityInterval);
         const update = () => {
-            if (current.endTime) {
-                // Countdown
-                const diff = Math.floor((current.endTime - Date.now()) / 1000);
-                if (diff <= 0) {
-                    activeTimerDisplay.innerText = "00:00:00";
-                    clearInterval(activityInterval);
-                    // Check if it was just finished, maybe reload to hide it
-                    chrome.storage.local.get(['currentActivity'], (res) => {
-                        if(!res.currentActivity) renderActivitiesList();
-                    });
+            activeActs.forEach(current => {
+                const el = document.getElementById(`timer-${current.id}`);
+                if(!el) return;
+
+                if (current.endTime) {
+                    // Countdown
+                    const diff = Math.floor((current.endTime - Date.now()) / 1000);
+                    if (diff <= 0) {
+                        el.innerText = "00:00:00";
+                        // Auto-stop logic handled in background or next render
+                    } else {
+                        el.innerText = formatTimeDetailed(diff);
+                    }
                 } else {
-                    activeTimerDisplay.innerText = formatTimeDetailed(diff);
+                    // Count up
+                    const diff = Math.floor((Date.now() - current.startTime) / 1000);
+                    el.innerText = formatTimeDetailed(diff);
                 }
-            } else {
-                // Count up
-                const diff = Math.floor((Date.now() - current.startTime) / 1000);
-                activeTimerDisplay.innerText = formatTimeDetailed(diff);
-            }
+            });
         };
         update();
         activityInterval = setInterval(update, 1000);

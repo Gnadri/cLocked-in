@@ -452,21 +452,34 @@
         
         <!-- Active Task Display -->
         <div id="active-activity-container" style="display:none; background:#e3f2fd; padding:15px; border-radius:8px; margin-bottom:20px; text-align:center; border:1px solid #2196f3;">
-            <div style="font-size:12px; color:#1976d2; font-weight:bold; text-transform:uppercase;">Current Focus</div>
-            <div id="active-activity-name" style="font-size:18px; font-weight:bold; margin:5px 0; color:#0d47a1;">Reading</div>
-            <div id="active-activity-timer" class="timer-big" style="font-size:24px; margin:10px 0;">00:00:00</div>
-            <div class="active-task-actions">
-                <button id="btn-complete-activity" class="btn btn-green">Complete Task</button>
-                <button id="btn-stop-activity" class="btn btn-red">End Task</button>
+            <!-- Dynamic Content -->
+        </div>
+
+        <div id="task-breadcrumbs" style="display:none; flex-direction:column; margin-bottom:10px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; width:100%;">
+                <div style="display:flex; align-items:center;">
+                    <span id="btn-task-back" style="padding:5px; border-radius:4px; background:#f0f0f0; cursor:pointer; font-size:13px;">◄ Back</span>
+                    <span id="task-folder-title" style="margin-left:10px; font-weight:bold; color:#333;"></span>
+                </div>
+                <div id="folder-settings-trigger" title="Change Color" style="cursor:pointer; width:24px; height:24px; border-radius:50%; border:2px solid #ddd;"></div>
+            </div>
+            <div id="folder-inline-color-picker" style="display:none; margin-top:10px; padding:10px; background:#f9f9f9; border-radius:8px; border:1px solid #eee;">
+                <div style="font-size:12px; margin-bottom:5px; color:#666;">Select Folder Color:</div>
+                <div id="folder-inline-colors" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+            </div>
+        </div>
+
+        <div style="display:flex; gap:10px; margin-bottom:15px;">
+            <div id="btn-new-activity" class="new-collection-row" style="flex:1; margin-top:0;">
+                <span class="plus-icon">+</span> New Task
+            </div>
+            <div id="btn-new-task-folder" class="new-collection-row" style="flex:1; background-color:#fff8e1; color:#f57f17; margin-top:0;">
+                <span class="plus-icon">+</span> New Folder
             </div>
         </div>
 
         <div id="activities-list" class="modal-list">
             <!-- List of activities -->
-        </div>
-        
-        <div id="btn-new-activity" class="new-collection-row">
-            <span class="plus-icon">+</span> Create New Task
         </div>
     </div>
 
@@ -538,6 +551,11 @@
             </div>
             <div class="create-body" style="align-items:stretch;">
                 <input type="text" id="new-activity-name" placeholder="Task Name (e.g. Deep Work)">
+                
+                <select id="new-activity-folder" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px; margin-bottom:10px; background:white;">
+                    <option value="">No Folder (Root)</option>
+                </select>
+
                 <input type="number" id="new-activity-duration" placeholder="Duration (minutes, optional)">
                 <input type="text" id="new-activity-redirect" placeholder="Redirect URL (e.g. notion.so)">
                 
@@ -549,6 +567,28 @@
                 </div>
 
                 <button id="btn-save-activity" class="btn btn-green" style="margin-top:15px;">Create Task</button>
+            </div>
+        </div>
+
+        <!-- Create Task Folder Modal -->
+        <div id="modal-create-task-folder" class="modal-content" style="display:none;">
+            <div class="modal-header">
+                <span>New Task Folder</span>
+                <span class="close-modal">✕</span>
+            </div>
+            <div class="create-body">
+                <div class="collection-icon-placeholder" style="background-image:none; display:flex; align-items:center; justify-content:center; font-size:30px;">📂</div>
+                <input type="text" id="new-task-folder-name" placeholder="Folder Name">
+                
+                <div style="margin-bottom: 15px; width: 100%;">
+                    <div style="font-size: 12px; color: #666; margin-bottom: 5px; font-weight: bold; text-align: left;">Folder Color</div>
+                    <div id="folder-color-picker" style="display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;">
+                        <!-- Colors will be injected by JS -->
+                    </div>
+                    <input type="hidden" id="new-task-folder-color" value="#3b82f6">
+                </div>
+
+                <button id="btn-save-task-folder" class="btn btn-green">Create Folder</button>
             </div>
         </div>
     </div>

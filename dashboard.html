@@ -58,6 +58,85 @@
             border-left: 3px solid #2563eb;
         }
         .task-chip:hover { transform: translateY(-1px); box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+
+        /* Day View */
+        .day-view {
+            display: none;
+            flex-direction: column;
+            flex: 1;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #e5e7eb;
+        }
+        .day-header-row {
+            padding: 15px;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            background: #f9fafb;
+        }
+        .day-header-row h2 { margin: 0; font-size: 1.5rem; }
+        .btn-back {
+            padding: 8px 16px;
+            background: white;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            color: #374151;
+        }
+        .btn-back:hover { background: #f3f4f6; }
+
+        .day-scroll-area {
+            flex: 1;
+            overflow-y: auto;
+            position: relative;
+            padding: 20px;
+        }
+        .timeline-container {
+            position: relative;
+            height: 2880px; /* 24 hours * 120px */
+            margin-left: 60px; /* Space for time labels */
+            border-left: 1px solid #e5e7eb;
+        }
+        .time-label {
+            position: absolute;
+            left: -60px;
+            width: 50px;
+            text-align: right;
+            font-size: 0.8rem;
+            color: #9ca3af;
+            transform: translateY(-50%);
+        }
+        .time-line {
+            position: absolute;
+            left: 0;
+            right: 0;
+            border-top: 1px solid #f3f4f6;
+        }
+        .task-block {
+            position: absolute;
+            left: 10px;
+            right: 10px;
+            background: rgba(59, 130, 246, 0.1);
+            border-left: 4px solid #3b82f6;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            color: #1e40af;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .task-block:hover {
+            background: rgba(59, 130, 246, 0.2);
+            z-index: 10;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .task-time { font-size: 0.75rem; opacity: 0.8; margin-bottom: 2px; }
+        .task-name { font-weight: bold; }
     </style>
 </head>
 <body>
@@ -65,16 +144,24 @@
         <div class="logo">cLocked In</div>
         <div class="stat-card">
             <div class="stat-val" id="total-tasks">0</div>
-            <div class="stat-label">Tasks Completed Total</div>
+            <div class="stat-label" id="label-total-tasks">Tasks Completed Total</div>
         </div>
         <div class="stat-card">
             <div class="stat-val" id="total-hours">0h</div>
-            <div class="stat-label">Productive Time</div>
+            <div class="stat-label" id="label-total-hours">Productive Time</div>
+        </div>
+        <div class="stat-card" id="sidebar-chart-card" style="display:none; text-align:center;">
+            <canvas id="dayPieChart" width="200" height="200" style="width:100%; height:auto;"></canvas>
+            <div class="stat-label" style="margin-top:10px;">Day Breakdown</div>
+        </div>
+        <div class="stat-card" id="sidebar-task-list" style="display:none;">
+            <div class="stat-label" style="margin-bottom:10px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Top Tasks</div>
+            <div id="day-tasks-container"></div>
         </div>
     </div>
 
     <div class="main">
-        <div class="cal-header">
+        <div class="cal-header" id="cal-header-main">
             <div class="cal-title" id="cal-month-year">November 2025</div>
             <div class="cal-nav">
                 <button id="prev-month">&larr; Prev</button>
@@ -84,6 +171,19 @@
         </div>
 
         <div class="calendar" id="calendar-grid">
+        </div>
+
+        <!-- Day View Container -->
+        <div class="day-view" id="day-view">
+            <div class="day-header-row">
+                <button class="btn-back" id="btn-back-cal">&larr; Back</button>
+                <h2 id="day-view-date">Date</h2>
+            </div>
+            <div class="day-scroll-area">
+                <div class="timeline-container" id="day-timeline">
+                    <!-- Generated via JS -->
+                </div>
+            </div>
         </div>
     </div>
 
