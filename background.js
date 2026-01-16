@@ -39,10 +39,11 @@ setInterval(() => {
 
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 
-    chrome.storage.local.get(['trackerData', 'collections', 'activeActivities'], (result) => {
+    chrome.storage.local.get(['trackerData', 'collections', 'activeActivities', 'trackingPaused'], (result) => {
       let data = result.trackerData || {};
       const collections = result.collections || [];
       let activeActivities = result.activeActivities || [];
+      const trackingPaused = !!result.trackingPaused;
 
       // Check if any activity expired
       let changed = false;
@@ -65,7 +66,7 @@ setInterval(() => {
           act.exceptions && act.exceptions.some(ex => currentUrl.includes(ex))
       );
 
-      if (!isGlobalException) {
+      if (!isGlobalException && !trackingPaused) {
           // Initialize day if not exists
           if (!data[today]) data[today] = {};
           

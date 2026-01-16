@@ -983,9 +983,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- COLLECTIONS LOGIC ---
     const btnOpenDashboard = document.getElementById('btn-open-dashboard');
+    const btnSleepTracking = document.getElementById('btn-sleep-tracking');
+    let isTrackingPaused = false;
+
+    function setTrackingPausedUI(paused) {
+        if (!btnSleepTracking) return;
+        btnSleepTracking.textContent = paused ? 'Wake' : '🌙';
+        btnSleepTracking.title = paused ? 'Resume tracking' : 'Pause tracking';
+        btnSleepTracking.style.backgroundColor = paused ? '#ffe0b2' : '#f0f0f0';
+        btnSleepTracking.style.color = paused ? '#e65100' : '#666';
+    }
     if(btnOpenDashboard) {
         btnOpenDashboard.addEventListener('click', () => {
             chrome.tabs.create({ url: 'dashboard.html' });
+        });
+    }
+
+    if (btnSleepTracking) {
+        chrome.storage.local.get(['trackingPaused'], (result) => {
+            isTrackingPaused = !!result.trackingPaused;
+            setTrackingPausedUI(isTrackingPaused);
+        });
+
+        btnSleepTracking.addEventListener('click', () => {
+            isTrackingPaused = !isTrackingPaused;
+            chrome.storage.local.set({ trackingPaused: isTrackingPaused }, () => {
+                setTrackingPausedUI(isTrackingPaused);
+                showNotification(isTrackingPaused ? 'Tracking paused' : 'Tracking resumed');
+            });
         });
     }
 
