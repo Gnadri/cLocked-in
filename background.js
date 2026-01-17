@@ -39,11 +39,12 @@ setInterval(() => {
 
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 
-    chrome.storage.local.get(['trackerData', 'collections', 'activeActivities', 'trackingPaused'], (result) => {
+    chrome.storage.local.get(['trackerData', 'collections', 'activeActivities', 'trackingPaused', 'siteSettings'], (result) => {
       let data = result.trackerData || {};
       const collections = result.collections || [];
       let activeActivities = result.activeActivities || [];
       const trackingPaused = !!result.trackingPaused;
+      const siteSettings = result.siteSettings || {};
 
       // Check if any activity expired
       let changed = false;
@@ -81,6 +82,21 @@ setInterval(() => {
       // CHECK LIMITS, BLOCKED CATEGORIES & ACTIVITIES
       let shouldBlock = false;
       let redirectTarget = chrome.runtime.getURL(`blocked.html?site=${domain}`);
+
+      // Site daily limit
+      const siteSetting = siteSettings[domain];
+      const limitMinutes = siteSetting ? siteSetting.dailyLimitMinutes : null;
+      const limitSeconds = limitMinutes ? (limitMinutes * 60) : null;
+      const timeToday = (data[today] && data[today][domain]) ? data[today][domain] : 0;
+      const limitReached = limitSeconds && timeToday >= limitSeconds;
+      if (limitReached && siteSetting && siteSetting.redirectEnabled) {
+          shouldBlock = true;
+          if (siteSetting.redirectUrl) {
+              let url = siteSetting.redirectUrl;
+              if (!url.startsWith('http')) url = 'https://' + url;
+              redirectTarget = url;
+          }
+      }
 
       // Helper to check if domain is in a collection
       const findCollection = (d) => {

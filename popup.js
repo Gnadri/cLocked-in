@@ -45,7 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- NAVIGATION ---
-    const tabs = ['dash', 'tasks', 'collections'];
+    const tabs = ['dash', 'tasks', 'collections', 'sites'];
     tabs.forEach(t => {
         const el = document.getElementById(`nav-${t}`);
         if(el) {
@@ -56,6 +56,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 el.classList.add('active');
                 document.getElementById(`view-${t}`).classList.add('active');
+                if (t === 'sites') renderSiteSettingsSelect();
             });
         }
     });
@@ -214,6 +215,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 const btnAdd = row.querySelector('.btn-add-cat');
                 btnAdd.addEventListener('click', () => {
                     openCategoryModal(item.site);
+                });
+
+                // Click row to open site settings
+                row.addEventListener('click', (e) => {
+                    if (e.target && e.target.classList && e.target.classList.contains('btn-add-cat')) return;
+                    openSiteSettings(item.site);
                 });
 
                 container.appendChild(row);
@@ -980,6 +987,173 @@ document.addEventListener('DOMContentLoaded', () => {
             }, 300); // Wait for transition
         }, duration);
     }
+
+    // --- SITE SETTINGS LOGIC ---
+    const siteSettingsSelect = document.getElementById('site-settings-select');
+    const siteSettingsDomain = document.getElementById('site-settings-domain');
+    const siteSettingsDailyLimit = document.getElementById('site-settings-daily-limit');
+    const siteSettingsRedirectUrl = document.getElementById('site-settings-redirect-url');
+    const siteSettingsRedirectEnabled = document.getElementById('site-settings-redirect-enabled');
+    const btnSiteUseCurrent = document.getElementById('btn-site-use-current');
+    const btnSaveSiteSettings = document.getElementById('btn-save-site-settings');
+    const btnDeleteSiteSettings = document.getElementById('btn-delete-site-settings');
+
+    function normalizeDomainInput(value) {
+        const trimmed = value.trim();
+        if (!trimmed) return '';
+        try {
+            const url = trimmed.includes('://') ? new URL(trimmed) : new URL(`https://${trimmed}`);
+            return url.hostname;
+        } catch (e) {
+            return trimmed.split('/')[0].toLowerCase();
+        }
+    }
+
+    function renderSiteSettingsSelect() {
+        if (!siteSettingsSelect) return;
+        chrome.storage.local.get(['trackerData', 'collections'], (result) => {
+            const trackerData = result.trackerData || {};
+            const collections = result.collections || [];
+            const domains = new Set();
+
+            Object.values(trackerData).forEach(dayData => {
+                Object.keys(dayData || {}).forEach(domain => {
+                    if (domain && domain !== 'newtab') domains.add(domain);
+                });
+            });
+
+            collections.forEach(col => {
+                (col.items || []).forEach(site => {
+                    const normalized = normalizeDomainInput(site);
+                    if (normalized) domains.add(normalized);
+                });
+            });
+
+            const previous = siteSettingsSelect.value;
+            siteSettingsSelect.innerHTML = '<option value="">Select a site</option>';
+            Array.from(domains).sort().forEach(domain => {
+                const opt = document.createElement('option');
+                opt.value = domain;
+                opt.textContent = domain;
+                if (domain === previous) opt.selected = true;
+                siteSettingsSelect.appendChild(opt);
+            });
+        });
+    }
+
+    function loadSiteSettings(domain) {
+        if (!siteSettingsDomain) return;
+        const normalized = normalizeDomainInput(domain);
+        if (!normalized) {
+            siteSettingsDomain.value = '';
+            if (siteSettingsDailyLimit) siteSettingsDailyLimit.value = '';
+            if (siteSettingsRedirectUrl) siteSettingsRedirectUrl.value = '';
+            if (siteSettingsRedirectEnabled) siteSettingsRedirectEnabled.checked = false;
+            return;
+        }
+
+        chrome.storage.local.get(['siteSettings'], (result) => {
+            const settings = result.siteSettings || {};
+            const entry = settings[normalized] || {};
+            siteSettingsDomain.value = normalized;
+            if (siteSettingsDailyLimit) siteSettingsDailyLimit.value = entry.dailyLimitMinutes || '';
+            if (siteSettingsRedirectUrl) siteSettingsRedirectUrl.value = entry.redirectUrl || '';
+            if (siteSettingsRedirectEnabled) siteSettingsRedirectEnabled.checked = !!entry.redirectEnabled;
+        });
+    }
+
+    function openSiteSettings(domain) {
+        const navSites = document.getElementById('nav-sites');
+        const viewSites = document.getElementById('view-sites');
+        if (!navSites || !viewSites) return;
+
+        ['dash', 'tasks', 'collections', 'sites'].forEach(t => {
+            const navEl = document.getElementById(`nav-${t}`);
+            const viewEl = document.getElementById(`view-${t}`);
+            if (navEl) navEl.classList.remove('active');
+            if (viewEl) viewEl.classList.remove('active');
+        });
+        navSites.classList.add('active');
+        viewSites.classList.add('active');
+
+        renderSiteSettingsSelect();
+        const normalized = normalizeDomainInput(domain);
+        if (siteSettingsSelect) siteSettingsSelect.value = normalized;
+        loadSiteSettings(normalized);
+    }
+
+    if (siteSettingsSelect) {
+        siteSettingsSelect.addEventListener('change', (e) => {
+            const domain = e.target.value;
+            loadSiteSettings(domain);
+        });
+    }
+
+    if (btnSiteUseCurrent) {
+        btnSiteUseCurrent.addEventListener('click', () => {
+            chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
+                if (tabs[0]) {
+                    const domain = normalizeDomainInput(tabs[0].url);
+                    if (domain) {
+                        if (siteSettingsSelect) siteSettingsSelect.value = domain;
+                        loadSiteSettings(domain);
+                    }
+                }
+            });
+        });
+    }
+
+    if (btnSaveSiteSettings) {
+        btnSaveSiteSettings.addEventListener('click', () => {
+            const domain = normalizeDomainInput(siteSettingsDomain ? siteSettingsDomain.value : '');
+            if (!domain) {
+                showNotification('Enter a valid site');
+                return;
+            }
+
+            const limitMinutesRaw = siteSettingsDailyLimit ? siteSettingsDailyLimit.value.trim() : '';
+            const limitMinutes = limitMinutesRaw ? parseInt(limitMinutesRaw, 10) : null;
+            const redirectEnabled = siteSettingsRedirectEnabled ? siteSettingsRedirectEnabled.checked : false;
+            const redirectUrlRaw = siteSettingsRedirectUrl ? siteSettingsRedirectUrl.value.trim() : '';
+
+            chrome.storage.local.get(['siteSettings'], (result) => {
+                const settings = result.siteSettings || {};
+                settings[domain] = {
+                    dailyLimitMinutes: limitMinutes && limitMinutes > 0 ? limitMinutes : null,
+                    redirectEnabled: !!redirectEnabled,
+                    redirectUrl: redirectUrlRaw
+                };
+                chrome.storage.local.set({siteSettings: settings}, () => {
+                    if (siteSettingsSelect) siteSettingsSelect.value = domain;
+                    renderSiteSettingsSelect();
+                    showNotification('Site settings saved');
+                });
+            });
+        });
+    }
+
+    if (btnDeleteSiteSettings) {
+        btnDeleteSiteSettings.addEventListener('click', () => {
+            const domain = normalizeDomainInput(siteSettingsDomain ? siteSettingsDomain.value : '');
+            if (!domain) {
+                showNotification('Select a site to remove');
+                return;
+            }
+
+            chrome.storage.local.get(['siteSettings'], (result) => {
+                const settings = result.siteSettings || {};
+                delete settings[domain];
+                chrome.storage.local.set({siteSettings: settings}, () => {
+                    if (siteSettingsSelect) siteSettingsSelect.value = '';
+                    loadSiteSettings('');
+                    renderSiteSettingsSelect();
+                    showNotification('Site settings removed');
+                });
+            });
+        });
+    }
+
+    renderSiteSettingsSelect();
 
     // --- COLLECTIONS LOGIC ---
     const btnOpenDashboard = document.getElementById('btn-open-dashboard');
