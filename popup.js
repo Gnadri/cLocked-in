@@ -684,11 +684,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     div.style.marginBottom = '15px';
                     div.style.borderBottom = '1px solid #bbdefb';
                     div.style.paddingBottom = '15px';
+                    const isPaused = current.isPaused || false;
+                    const pauseBtnStyle = 'flex:1; background:#ff9800; color:white;';
+                    const pauseBtnText = isPaused ? '▶️ Resume' : '⏸️ Pause';
                     div.innerHTML = `
                         <div style="font-size:18px; font-weight:bold; margin:5px 0; color:#0d47a1;">${current.name}</div>
-                        <div id="timer-${current.id}" class="timer-big" style="font-size:24px; margin:10px 0;">00:00:00</div>
+                        <div id="timer-${current.id}" class="timer-big" style="font-size:24px; margin:10px 0;">${isPaused ? '⏸️ ' : ''}00:00:00</div>
                         <div style="display:flex; gap:10px; justify-content:center;">
                             <button class="btn btn-red btn-stop-task" data-id="${current.id}" style="flex:1;">Stop</button>
+                            <button class="btn btn-pause-task" data-id="${current.id}" style="${pauseBtnStyle}">${pauseBtnText}</button>
                             <button class="btn btn-green btn-complete-task" data-id="${current.id}" style="flex:3;">Complete Task</button>
                         </div>
                     `;
@@ -696,6 +700,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     // Attach listeners
                     div.querySelector('.btn-stop-task').addEventListener('click', () => stopTask(current.id));
+                    div.querySelector('.btn-pause-task').addEventListener('click', () => togglePauseTask(current.id));
                     div.querySelector('.btn-complete-task').addEventListener('click', () => completeTask(current.id));
                 });
                 
@@ -868,6 +873,38 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function togglePauseTask(id) {
+        chrome.storage.local.get(['activeActivities'], (res) => {
+            let current = res.activeActivities || [];
+            const taskIndex = current.findIndex(a => a.id === id);
+            if (taskIndex !== -1) {
+                const task = current[taskIndex];
+                const now = Date.now();
+                
+                if (task.isPaused) {
+                    // Resume: adjust startTime to account for paused duration
+                    const pausedDuration = now - task.pausedAt;
+                    task.startTime += pausedDuration;
+                    if (task.endTime) {
+                        task.endTime += pausedDuration;
+                    }
+                    task.isPaused = false;
+                    task.pausedAt = null;
+                    showNotification('Task resumed');
+                } else {
+                    // Pause
+                    task.isPaused = true;
+                    task.pausedAt = now;
+                    showNotification('Task paused');
+                }
+                
+                chrome.storage.local.set({activeActivities: current}, () => {
+                    renderActivitiesList();
+                });
+            }
+        });
+    }
+
     function stopTask(id) {
         chrome.storage.local.get(['activeActivities'], (res) => {
             let current = res.activeActivities || [];
@@ -939,6 +976,19 @@ document.addEventListener('DOMContentLoaded', () => {
             activeActs.forEach(current => {
                 const el = document.getElementById(`timer-${current.id}`);
                 if(!el) return;
+
+                // Don't update timer if paused
+                if (current.isPaused) {
+                    // Show paused time
+                    if (current.endTime) {
+                        const diff = Math.floor((current.endTime - current.pausedAt) / 1000);
+                        el.innerText = '⏸️ ' + formatTimeDetailed(Math.max(0, diff));
+                    } else {
+                        const diff = Math.floor((current.pausedAt - current.startTime) / 1000);
+                        el.innerText = '⏸️ ' + formatTimeDetailed(diff);
+                    }
+                    return;
+                }
 
                 if (current.endTime) {
                     // Countdown
@@ -1158,7 +1208,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- COLLECTIONS LOGIC ---
     const btnOpenDashboard = document.getElementById('btn-open-dashboard');
     const btnSleepTracking = document.getElementById('btn-sleep-tracking');
+    const btnLockedOut = document.getElementById('btn-locked-out');
     let isTrackingPaused = false;
+    let lockedOutInterval = null;
 
     function setTrackingPausedUI(paused) {
         if (!btnSleepTracking) return;
@@ -1171,6 +1223,136 @@ document.addEventListener('DOMContentLoaded', () => {
         btnOpenDashboard.addEventListener('click', () => {
             chrome.tabs.create({ url: 'dashboard.html' });
         });
+    }
+
+    // --- LOCKED OUT FUNCTIONALITY ---
+    function updateLockedOutUI() {
+        chrome.storage.local.get(['lockedOutSession'], (result) => {
+            const session = result.lockedOutSession;
+            if (session && session.startTime) {
+                btnLockedOut.classList.add('active');
+                startLockedOutTimer(session.startTime);
+            } else {
+                btnLockedOut.classList.remove('active');
+                btnLockedOut.innerHTML = '🔒 Lock Out';
+                clearInterval(lockedOutInterval);
+            }
+        });
+    }
+
+    function startLockedOutTimer(startTime) {
+        clearInterval(lockedOutInterval);
+        const update = () => {
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            btnLockedOut.innerHTML = `🔒 <span class="locked-out-timer">${formatTimeDetailed(elapsed)}</span>`;
+        };
+        update();
+        lockedOutInterval = setInterval(update, 1000);
+    }
+
+    function startLockedOut() {
+        // Pause all active activities instead of stopping them
+        chrome.storage.local.get(['activeActivities'], (res) => {
+            let activeActs = res.activeActivities || [];
+            const now = Date.now();
+            
+            // Pause all active tasks
+            if (activeActs.length > 0) {
+                activeActs.forEach(task => {
+                    if (!task.isPaused) {
+                        task.isPaused = true;
+                        task.pausedAt = now;
+                    }
+                });
+            }
+
+            // Start locked out session
+            const lockedOutSession = {
+                startTime: now
+            };
+
+            chrome.storage.local.set({
+                activeActivities: activeActs,
+                lockedOutSession: lockedOutSession
+            }, () => {
+                renderActivitiesList();
+                updateLockedOutUI();
+                showNotification('Locked out! All tasks paused.');
+            });
+        });
+    }
+
+    function stopLockedOut() {
+        chrome.storage.local.get(['lockedOutSession', 'trackerData', 'taskHistory', 'activeActivities'], (result) => {
+            const session = result.lockedOutSession;
+            if (!session || !session.startTime) return;
+
+            let trackerData = result.trackerData || {};
+            let taskHistory = result.taskHistory || [];
+            let activeActs = result.activeActivities || [];
+            const now = Date.now();
+            const today = getLocalTodayStr();
+            const elapsedSeconds = Math.floor((now - session.startTime) / 1000);
+
+            // Add to tracker data
+            if (!trackerData[today]) trackerData[today] = {};
+            if (!trackerData[today]['Locked Out']) trackerData[today]['Locked Out'] = 0;
+            trackerData[today]['Locked Out'] += elapsedSeconds;
+
+            // Add to task history with BLACK color
+            taskHistory.push({
+                name: 'Locked Out',
+                startTime: session.startTime,
+                endTime: now,
+                date: today,
+                color: '#000000' // Black color for calendar
+            });
+
+            // Resume all paused tasks
+            if (activeActs.length > 0) {
+                const lockoutDuration = now - session.startTime;
+                activeActs.forEach(task => {
+                    if (task.isPaused && task.pausedAt === session.startTime) {
+                        // Resume this task by adjusting timestamps
+                        task.startTime += lockoutDuration;
+                        if (task.endTime) {
+                            task.endTime += lockoutDuration;
+                        }
+                        task.isPaused = false;
+                        task.pausedAt = null;
+                    }
+                });
+            }
+
+            chrome.storage.local.set({
+                lockedOutSession: null,
+                trackerData: trackerData,
+                taskHistory: taskHistory,
+                activeActivities: activeActs
+            }, () => {
+                updateLockedOutUI();
+                renderActivitiesList();
+                renderStats();
+                showNotification('Locked out ended - tasks resumed');
+            });
+        });
+    }
+
+    if (btnLockedOut) {
+        btnLockedOut.addEventListener('click', () => {
+            chrome.storage.local.get(['lockedOutSession'], (result) => {
+                if (result.lockedOutSession && result.lockedOutSession.startTime) {
+                    // Currently locked out, stop it
+                    stopLockedOut();
+                } else {
+                    // Not locked out, start it
+                    startLockedOut();
+                }
+            });
+        });
+
+        // Initialize UI on load
+        updateLockedOutUI();
     }
 
     if (btnSleepTracking) {
