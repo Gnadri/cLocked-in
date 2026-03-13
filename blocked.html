@@ -26,13 +26,20 @@
 </head>
 <body>
     <div class="container">
-        <h1>🛑 Limit Exceeded</h1>
-        <p>You have used up your time for <span id="site-name">this site</span>.</p>
-        <p>Get back to your productive tasks!</p>
+        <h1> Limit Exceeded</h1>
+        <p id="blocked-message">You have used up your time for <span id="site-name">this site</span>.</p>
+        <p id="blocked-detail">Get back to your productive tasks!</p>
     </div>
     <script>
         const params = new URLSearchParams(window.location.search);
         document.getElementById('site-name').innerText = params.get('site') || 'this site';
+        if (params.get('reason') === 'lockin') {
+            document.title = 'Lock In Active';
+            document.querySelector('h1').innerText = 'Lock In Active';
+            document.getElementById('blocked-message').innerHTML = '<span id="site-name"></span> is blocked until you complete a task.';
+            document.getElementById('site-name').innerText = params.get('site') || 'This site';
+            document.getElementById('blocked-detail').innerText = 'Open the extension, start a task, and complete it to unlock the category.';
+        }
     </script>
 </body>
 </html>

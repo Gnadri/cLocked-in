@@ -445,6 +445,7 @@
                 <div id="btn-bookmark-current" style="cursor:pointer; font-size:20px;" title="Save to Category">🔖</div>
                 <div id="btn-locked-out" class="btn-locked-out" title="Lock out - stops all tasks">🔒 Lock Out</div>
                 <div id="btn-sleep-tracking" style="cursor:pointer; font-size:12px; padding:2px 6px; border-radius:4px; background:#f0f0f0; color:#666;" title="Pause tracking">🌙</div>
+                <div id="btn-lock-in" class="btn-locked-out" title="Lock in - block a category after a usage limit">Lock In</div>
             </div>
         </div>
         <div class="nav-links">
@@ -452,8 +453,9 @@
             <span id="nav-tasks" class="nav-item">Activities</span>
             <span id="nav-collections" class="nav-item">Categories</span>
             <span id="nav-sites" class="nav-item">Sites</span>
-            <span class="nav-item">Support</span>
+            <span id="nav-settings" class="nav-item">Settings</span>
         </div>
+
     </div>
 
     <div id="view-dash" class="section active">
@@ -507,6 +509,7 @@
         <div id="activities-list" class="modal-list">
             <!-- List of activities -->
         </div>
+
     </div>
 
     <!-- Removed Limits Section -->
@@ -642,6 +645,130 @@
                 <button id="btn-save-task-folder" class="btn btn-green">Create Folder</button>
             </div>
         </div>
+        <div id="modal-lock-in" class="modal-content" style="display:none;">
+            <div class="modal-header">
+                <span>Start Lock In</span>
+                <span class="close-modal">✕</span>
+            </div>
+            <div class="create-body" style="align-items:stretch;">
+                <div style="font-size:13px; color:#666; margin-bottom:10px;">
+                    Pick the category to keep available until the timer runs out. Once the limit is reached, that whole category is blocked until you complete a task.
+                </div>
+                <div style="margin-bottom:8px; font-weight:bold; font-size:13px; color:#666;">Category</div>
+                <div id="lock-in-category-select" style="max-height:180px; overflow-y:auto; border:1px solid #eee; border-radius:4px; padding:5px; margin-bottom:12px;"></div>
+                <div style="font-size:13px; color:#666; margin-bottom:8px;">Duration</div>
+                <input type="number" id="lock-in-duration" min="1" placeholder="Minutes">
+                <button id="btn-start-lock-in" class="btn btn-green">Start Lock In</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Section -->
+    <div id="view-settings" class="section">
+        <div class="stats-header">Application Settings</div>
+        
+        <!-- Sleep Mode Settings -->
+        <div style="background:#f9f9f9; padding:15px; border-radius:8px; margin-bottom:20px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+                <div>
+                    <div style="font-weight:bold; font-size:14px; color:#333; margin-bottom:3px;">🌙 Sleep Mode</div>
+                    <div style="font-size:12px; color:#666;">Pause all time tracking temporarily</div>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="settings-sleep-mode-toggle">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div style="font-size:12px; color:#888; margin-top:10px; padding-top:10px; border-top:1px solid #e0e0e0;">
+                When enabled, tracking will pause and no time will be recorded for any sites.
+            </div>
+        </div>
+
+        <!-- Locked Out Mode Settings -->
+        <div style="background:#f9f9f9; padding:15px; border-radius:8px; margin-bottom:20px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+                <div>
+                    <div style="font-weight:bold; font-size:14px; color:#333; margin-bottom:3px;">🔒 Locked Out Mode</div>
+                    <div style="font-size:12px; color:#666;">Deep focus mode - pauses all tasks</div>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="settings-locked-out-toggle">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div style="font-size:12px; color:#888; margin-top:10px; padding-top:10px; border-top:1px solid #e0e0e0;">
+                Locked Out mode pauses all active tasks and tracks dedicated focus time separately.
+            </div>
+        </div>
+
+        <!-- Auto-sleep Settings -->
+        <div style="background:#f9f9f9; padding:15px; border-radius:8px; margin-bottom:20px;">
+            <div style="font-weight:bold; font-size:14px; color:#333; margin-bottom:10px;">⏰ Auto-Sleep Schedule</div>
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+                <span style="font-size:13px; color:#666;">Enable auto-sleep</span>
+                <label class="switch">
+                    <input type="checkbox" id="settings-auto-sleep-enabled">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div id="auto-sleep-times" style="margin-top:15px;">
+                <div style="display:flex; gap:10px; margin-bottom:10px; align-items:center;">
+                    <label style="font-size:12px; color:#666; width:60px;">Start:</label>
+                    <input type="time" id="auto-sleep-start" value="22:00" style="padding:6px; border:1px solid #ddd; border-radius:4px; flex:1;">
+                </div>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <label style="font-size:12px; color:#666; width:60px;">End:</label>
+                    <input type="time" id="auto-sleep-end" value="07:00" style="padding:6px; border:1px solid #ddd; border-radius:4px; flex:1;">
+                </div>
+            </div>
+            <div style="font-size:12px; color:#888; margin-top:10px; padding-top:10px; border-top:1px solid #e0e0e0;">
+                Automatically enable sleep mode during these hours.
+            </div>
+        </div>
+
+        <!-- Locked Out Settings -->
+        <div style="background:#f9f9f9; padding:15px; border-radius:8px; margin-bottom:20px;">
+            <div style="font-weight:bold; font-size:14px; color:#333; margin-bottom:10px;">🔒 Locked Out Behavior</div>
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+                <span style="font-size:13px; color:#666;">Show in stats</span>
+                <label class="switch">
+                    <input type="checkbox" id="settings-locked-out-show-stats" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:space-between;">
+                <span style="font-size:13px; color:#666;">Record in calendar</span>
+                <label class="switch">
+                    <input type="checkbox" id="settings-locked-out-in-calendar" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div style="font-size:12px; color:#888; margin-top:10px; padding-top:10px; border-top:1px solid #e0e0e0;">
+                Control how locked out sessions appear in your tracking data.
+            </div>
+        </div>
+        <div style="background:#f9f9f9; padding:15px; border-radius:8px; margin-bottom:20px;">
+            <div style="font-weight:bold; font-size:14px; color:#333; margin-bottom:10px;">Lock In</div>
+            <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
+                <label for="settings-lock-in-duration" style="font-size:13px; color:#666; min-width:110px;">Default duration</label>
+                <input type="number" id="settings-lock-in-duration" min="1" value="30" style="margin-bottom:0;">
+            </div>
+            <div id="settings-lock-in-status" style="font-size:12px; color:#666; margin-bottom:10px;">Inactive</div>
+            <div style="font-size:12px; color:#888; margin-top:10px; padding-top:10px; border-top:1px solid #e0e0e0;">
+                The Lock In button uses this default, but you can change it before starting a session.
+            </div>
+        </div>
+        <div style="background:#f9f9f9; padding:15px; border-radius:8px; margin-bottom:20px;">
+            <div style="font-weight:bold; font-size:14px; color:#333; margin-bottom:10px;">Data Backup</div>
+            <div style="display:flex; gap:10px; margin-bottom:10px;">
+                <button id="btn-export-data" class="btn btn-green" style="flex:1;">Export Data</button>
+                <button id="btn-import-data" class="btn" style="flex:1; background:#2196f3;">Import Data</button>
+            </div>
+            <input type="file" id="import-data-file" accept="application/json" style="display:none;">
+            <div style="font-size:12px; color:#888; margin-top:10px; padding-top:10px; border-top:1px solid #e0e0e0;">
+                Export your app data to a JSON backup, then import it after reloading the extension.
+            </div>
+        </div>
     </div>
 
     <!-- Notification Container -->
@@ -650,3 +777,5 @@
     <script src="popup.js"></script>
 </body>
 </html>
+
+

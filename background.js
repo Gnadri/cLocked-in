@@ -13,6 +13,35 @@ function getDomain(url) {
   return null;
 }
 
+function getLocalTodayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function isDomainInCollection(domain, collection) {
+  if (!collection || !collection.items) return false;
+
+  return collection.items.some((item) => {
+    const cleanItem = item.toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const cleanDomain = domain.toLowerCase();
+
+    return cleanDomain === cleanItem ||
+      cleanDomain.endsWith('.' + cleanItem) ||
+      cleanItem.endsWith('.' + cleanDomain);
+  });
+}
+
+function getCollectionUsageSeconds(dayData, collection) {
+  if (!dayData || !collection || !collection.items) return 0;
+
+  return Object.entries(dayData).reduce((total, [domain, seconds]) => {
+    if (isDomainInCollection(domain, collection)) {
+      return total + seconds;
+    }
+    return total;
+  }, 0);
+}
+
 // Update the current domain when tabs change or update
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
   const tab = await chrome.tabs.get(activeInfo.tabId);
@@ -37,14 +66,15 @@ setInterval(() => {
     // If no domain (e.g. chrome://), just return
     if (!domain) return;
 
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const today = getLocalTodayStr();
 
-    chrome.storage.local.get(['trackerData', 'collections', 'activeActivities', 'trackingPaused', 'siteSettings'], (result) => {
+    chrome.storage.local.get(['trackerData', 'collections', 'activeActivities', 'trackingPaused', 'siteSettings', 'lockInSession'], (result) => {
       let data = result.trackerData || {};
       const collections = result.collections || [];
       let activeActivities = result.activeActivities || [];
       const trackingPaused = !!result.trackingPaused;
       const siteSettings = result.siteSettings || {};
+      let lockInSession = result.lockInSession || null;
 
       // Check if any activity expired
       let changed = false;
@@ -100,18 +130,50 @@ setInterval(() => {
 
       // Helper to check if domain is in a collection
       const findCollection = (d) => {
-          return collections.find(col => col.items && col.items.some(item => {
-              // Clean up user input just in case
-              let cleanItem = item.toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
-              let cleanDomain = d.toLowerCase();
-              
-              return cleanDomain === cleanItem || 
-                     cleanDomain.endsWith('.' + cleanItem) || 
-                     cleanItem.endsWith('.' + cleanDomain);
-          }));
+          return collections.find(col => isDomainInCollection(d, col));
       };
 
       const col = findCollection(domain);
+
+      if (lockInSession && lockInSession.startTime) {
+          const lockInCollection = collections.find((collection) => collection.id === lockInSession.categoryId);
+          const inLockInCategory = isDomainInCollection(domain, lockInCollection);
+
+          if (lockInCollection) {
+              const categorySecondsToday = getCollectionUsageSeconds(data[today], lockInCollection);
+              const usedSeconds = Math.max(0, categorySecondsToday - (lockInSession.baselineSeconds || 0));
+              let nextLockInSession = lockInSession;
+
+              if (usedSeconds !== (lockInSession.usedSeconds || 0)) {
+                  nextLockInSession = {
+                      ...nextLockInSession,
+                      usedSeconds
+                  };
+              }
+
+              if (!nextLockInSession.isBlocked && usedSeconds >= (nextLockInSession.thresholdSeconds || 0)) {
+                  nextLockInSession = {
+                      ...nextLockInSession,
+                      usedSeconds,
+                      isBlocked: true,
+                      requiresTaskCompletion: true,
+                      blockedAt: Date.now()
+                  };
+              }
+
+              if (JSON.stringify(nextLockInSession) !== JSON.stringify(lockInSession)) {
+                  lockInSession = nextLockInSession;
+                  chrome.storage.local.set({ lockInSession });
+              } else {
+                  lockInSession = nextLockInSession;
+              }
+          }
+
+          if (lockInSession.isBlocked && inLockInCategory) {
+              shouldBlock = true;
+              redirectTarget = chrome.runtime.getURL(`blocked.html?site=${domain}&reason=lockin`);
+          }
+      }
 
       if (col) {
           // Check if category is manually blocked

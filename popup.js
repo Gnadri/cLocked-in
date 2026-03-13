@@ -45,7 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- NAVIGATION ---
-    const tabs = ['dash', 'tasks', 'collections', 'sites'];
+    const tabs = ['dash', 'tasks', 'collections', 'sites', 'settings'];
     tabs.forEach(t => {
         const el = document.getElementById(`nav-${t}`);
         if(el) {
@@ -57,6 +57,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 el.classList.add('active');
                 document.getElementById(`view-${t}`).classList.add('active');
                 if (t === 'sites') renderSiteSettingsSelect();
+                if (t === 'settings') initializeSettings();
             });
         }
     });
@@ -98,6 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const modalCreate = document.getElementById('modal-create-collection');
     const modalDetails = document.getElementById('modal-category-details');
     const modalCreateActivity = document.getElementById('modal-create-activity');
+    const modalLockIn = document.getElementById('modal-lock-in');
 
     function openCategoryModal(site) {
         currentSiteToSave = site;
@@ -106,6 +108,7 @@ document.addEventListener('DOMContentLoaded', () => {
         modalCreate.style.display = 'none';
         modalDetails.style.display = 'none';
         modalCreateActivity.style.display = 'none';
+        if (modalLockIn) modalLockIn.style.display = 'none';
         renderCollectionsListModal();
     }
 
@@ -116,6 +119,7 @@ document.addEventListener('DOMContentLoaded', () => {
         modalCreate.style.display = 'none';
         modalDetails.style.display = 'block';
         modalCreateActivity.style.display = 'none';
+        if (modalLockIn) modalLockIn.style.display = 'none';
         
         document.getElementById('detail-category-name').innerText = col.name;
         document.getElementById('detail-block-toggle').checked = !!col.isBlocked;
@@ -450,6 +454,7 @@ document.addEventListener('DOMContentLoaded', () => {
             modalDetails.style.display = 'none';
             modalCreateTaskFolder.style.display = 'none';
             modalCreateActivity.style.display = 'block';
+            if (modalLockIn) modalLockIn.style.display = 'none';
             renderCategorySelect();
         });
     }
@@ -490,6 +495,7 @@ document.addEventListener('DOMContentLoaded', () => {
             modalDetails.style.display = 'none';
             modalCreateActivity.style.display = 'none';
             modalCreateTaskFolder.style.display = 'block';
+            if (modalLockIn) modalLockIn.style.display = 'none';
         });
     }
 
@@ -567,6 +573,60 @@ document.addEventListener('DOMContentLoaded', () => {
                 container.appendChild(label);
             });
         });
+    }
+
+    function renderLockInCategorySelect(selectedId = null) {
+        chrome.storage.local.get(['collections'], (result) => {
+            const container = document.getElementById('lock-in-category-select');
+            if (!container) return;
+
+            container.innerHTML = '';
+            const cols = result.collections || [];
+
+            if (cols.length === 0) {
+                container.innerHTML = '<div style="padding:10px; color:#999; font-size:12px;">No categories found. Create one first!</div>';
+                return;
+            }
+
+            cols.forEach((col, index) => {
+                const label = document.createElement('label');
+                label.style.display = 'flex';
+                label.style.alignItems = 'center';
+                label.style.padding = '6px';
+                label.style.cursor = 'pointer';
+
+                const checked = selectedId ? selectedId === col.id : index === 0;
+                label.innerHTML = `
+                    <input type="radio" name="lock-in-category" value="${col.id}" style="width:auto; margin-right:10px;" ${checked ? 'checked' : ''}>
+                    <span>${col.name}</span>
+                `;
+                container.appendChild(label);
+            });
+        });
+    }
+
+    function domainMatchesCollection(domain, collection) {
+        if (!collection || !collection.items) return false;
+
+        return collection.items.some((item) => {
+            const cleanItem = item.toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
+            const cleanDomain = domain.toLowerCase();
+
+            return cleanDomain === cleanItem ||
+                cleanDomain.endsWith('.' + cleanItem) ||
+                cleanItem.endsWith('.' + cleanDomain);
+        });
+    }
+
+    function getCollectionUsageSeconds(dayData, collection) {
+        if (!dayData || !collection) return 0;
+
+        return Object.entries(dayData).reduce((total, [domain, seconds]) => {
+            if (domainMatchesCollection(domain, collection)) {
+                return total + seconds;
+            }
+            return total;
+        }, 0);
     }
 
     // Save Activity
@@ -822,6 +882,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     modalDetails.style.display = 'none';
                     modalCreateTaskFolder.style.display = 'none';
                     modalCreateActivity.style.display = 'block';
+                    if (modalLockIn) modalLockIn.style.display = 'none';
                     
                     renderCategorySelect(act.blockedCategoryIds);
                 });
@@ -917,11 +978,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function completeTask(id) {
-        chrome.storage.local.get(['activeActivities', 'trackerData', 'taskHistory', 'taskFolders'], (res) => {
+        chrome.storage.local.get(['activeActivities', 'trackerData', 'taskHistory', 'taskFolders', 'lockInSession', 'collections'], (res) => {
             let current = res.activeActivities || [];
             let trackerData = res.trackerData || {};
             let taskHistory = res.taskHistory || [];
             let folders = res.taskFolders || [];
+            const lockInSession = res.lockInSession;
+            const collections = res.collections || [];
             
             const taskIndex = current.findIndex(a => a.id === id);
             if (taskIndex !== -1) {
@@ -958,13 +1021,30 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Remove from active list
                 current.splice(taskIndex, 1);
                 
+                const completedAfterLockInBlock = !lockInSession || !lockInSession.isBlocked || !lockInSession.blockedAt || task.startTime >= lockInSession.blockedAt;
+                const lockInCollection = lockInSession ? collections.find(col => col.id === lockInSession.categoryId) : null;
+                const baselineSeconds = lockInCollection ? getCollectionUsageSeconds(trackerData[today], lockInCollection) : 0;
+                const nextLockInSession = lockInSession && lockInSession.isBlocked && completedAfterLockInBlock
+                    ? {
+                        ...lockInSession,
+                        startTime: now,
+                        baselineSeconds,
+                        usedSeconds: 0,
+                        isBlocked: false,
+                        requiresTaskCompletion: false,
+                        blockedAt: null
+                    }
+                    : lockInSession;
+
                 chrome.storage.local.set({
                     activeActivities: current,
                     trackerData: trackerData,
-                    taskHistory: taskHistory
+                    taskHistory: taskHistory,
+                    lockInSession: nextLockInSession
                 }, () => {
                     renderActivitiesList();
-                    showNotification('Task Completed! 🎉');
+                    updateLockInUI();
+                    showNotification(lockInSession && lockInSession.isBlocked && !completedAfterLockInBlock ? 'Task completed, but start a new task to unlock Lock In' : 'Task Completed! 🎉');
                 });
             }
         });
@@ -1036,6 +1116,55 @@ document.addEventListener('DOMContentLoaded', () => {
                 toast.remove();
             }, 300); // Wait for transition
         }, duration);
+    }
+
+    function exportAppData() {
+        chrome.storage.local.get(null, (data) => {
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            const date = new Date();
+            const stamp = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+            link.href = url;
+            link.download = `clocked-in-backup-${stamp}.json`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+            showNotification('App data exported');
+        });
+    }
+
+    function importAppData(file) {
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = () => {
+            try {
+                const parsed = JSON.parse(reader.result);
+                if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                    showNotification('Invalid backup file');
+                    return;
+                }
+
+                chrome.storage.local.clear(() => {
+                    chrome.storage.local.set(parsed, () => {
+                        renderStats();
+                        renderActivitiesList();
+                        renderCollectionsGrid();
+                        renderSiteSettingsSelect();
+                        updateLockedOutUI();
+                        updateLockInUI();
+                        initializeSettings();
+                        showNotification('App data imported');
+                    });
+                });
+            } catch (error) {
+                showNotification('Could not import backup');
+            }
+        };
+        reader.readAsText(file);
     }
 
     // --- SITE SETTINGS LOGIC ---
@@ -1209,8 +1338,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnOpenDashboard = document.getElementById('btn-open-dashboard');
     const btnSleepTracking = document.getElementById('btn-sleep-tracking');
     const btnLockedOut = document.getElementById('btn-locked-out');
+    const btnLockIn = document.getElementById('btn-lock-in');
+    const btnStartLockIn = document.getElementById('btn-start-lock-in');
     let isTrackingPaused = false;
     let lockedOutInterval = null;
+    let lockInInterval = null;
 
     function setTrackingPausedUI(paused) {
         if (!btnSleepTracking) return;
@@ -1338,6 +1470,130 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function openLockInModal() {
+        chrome.storage.local.get(['lockInDefaultDuration', 'lockInSession'], (result) => {
+            if (result.lockInSession && result.lockInSession.startTime) {
+                showNotification('Lock In is already active');
+                return;
+            }
+
+            const durationInput = document.getElementById('lock-in-duration');
+            if (durationInput) {
+                durationInput.value = result.lockInDefaultDuration || 30;
+            }
+
+            renderLockInCategorySelect();
+            modalOverlay.style.display = 'flex';
+            modalSelect.style.display = 'none';
+            modalCreate.style.display = 'none';
+            modalDetails.style.display = 'none';
+            modalCreateActivity.style.display = 'none';
+            modalCreateTaskFolder.style.display = 'none';
+            if (modalLockIn) modalLockIn.style.display = 'block';
+        });
+    }
+
+    function stopLockIn() {
+        chrome.storage.local.set({ lockInSession: null }, () => {
+            if (modalLockIn) modalLockIn.style.display = 'none';
+            modalOverlay.style.display = 'none';
+            updateLockInUI();
+            showNotification('Lock In disabled');
+        });
+    }
+
+    function updateLockInSettingsStatus(session) {
+        const status = document.getElementById('settings-lock-in-status');
+        if (!status) return;
+
+        if (!session || !session.startTime) {
+            status.innerText = 'Inactive';
+            return;
+        }
+
+        if (session.isBlocked) {
+            status.innerText = `${session.categoryName || 'Category'} blocked until a task is completed`;
+            return;
+        }
+
+        status.innerText = `${session.categoryName || 'Category'} armed for ${session.durationMinutes || Math.floor((session.thresholdSeconds || 0) / 60) || 30} minutes`;
+    }
+
+    function updateLockInUI() {
+        chrome.storage.local.get(['lockInSession'], (result) => {
+            const session = result.lockInSession;
+
+            clearInterval(lockInInterval);
+            if (!btnLockIn) {
+                updateLockInSettingsStatus(session);
+                return;
+            }
+
+            if (!session || !session.startTime) {
+                btnLockIn.classList.remove('active');
+                btnLockIn.innerText = 'Lock In';
+                updateLockInSettingsStatus(null);
+                return;
+            }
+
+            btnLockIn.classList.add('active');
+            btnLockIn.innerText = session.isBlocked ? 'Lock In Blocked' : 'Lock In On';
+            updateLockInSettingsStatus(session);
+        });
+    }
+
+    function startLockIn() {
+        const selected = document.querySelector('#lock-in-category-select input:checked');
+        const durationInput = document.getElementById('lock-in-duration');
+        const minutes = parseInt(durationInput ? durationInput.value : '', 10);
+
+        if (!selected) {
+            showNotification('Choose a category for Lock In');
+            return;
+        }
+
+        if (!minutes || minutes < 1) {
+            showNotification('Enter a Lock In duration');
+            return;
+        }
+
+        chrome.storage.local.get(['collections', 'trackerData'], (result) => {
+            const collections = result.collections || [];
+            const category = collections.find(col => col.id === selected.value);
+            const trackerData = result.trackerData || {};
+
+            if (!category) {
+                showNotification('Selected category not found');
+                return;
+            }
+
+            const today = getLocalTodayStr();
+            const baselineSeconds = getCollectionUsageSeconds(trackerData[today], category);
+
+            const session = {
+                startTime: Date.now(),
+                categoryId: category.id,
+                categoryName: category.name,
+                durationMinutes: minutes,
+                thresholdSeconds: minutes * 60,
+                baselineSeconds,
+                usedSeconds: 0,
+                isBlocked: false,
+                requiresTaskCompletion: false
+            };
+
+            chrome.storage.local.set({
+                lockInDefaultDuration: minutes,
+                lockInSession: session
+            }, () => {
+                modalOverlay.style.display = 'none';
+                if (modalLockIn) modalLockIn.style.display = 'none';
+                updateLockInUI();
+                showNotification(`Lock In enabled for ${category.name}`);
+            });
+        });
+    }
+
     if (btnLockedOut) {
         btnLockedOut.addEventListener('click', () => {
             chrome.storage.local.get(['lockedOutSession'], (result) => {
@@ -1354,6 +1610,32 @@ document.addEventListener('DOMContentLoaded', () => {
         // Initialize UI on load
         updateLockedOutUI();
     }
+
+    if (btnLockIn) {
+        btnLockIn.addEventListener('click', () => {
+            chrome.storage.local.get(['lockInSession'], (result) => {
+                const session = result.lockInSession;
+                if (session && session.startTime) {
+                    stopLockIn();
+                    return;
+                }
+
+                openLockInModal();
+            });
+        });
+
+        updateLockInUI();
+    }
+
+    if (btnStartLockIn) {
+        btnStartLockIn.addEventListener('click', startLockIn);
+    }
+
+    chrome.storage.onChanged.addListener((changes, area) => {
+        if (area === 'local' && changes.lockInSession) {
+            updateLockInUI();
+        }
+    });
 
     if (btnSleepTracking) {
         chrome.storage.local.get(['trackingPaused'], (result) => {
@@ -1398,6 +1680,7 @@ document.addEventListener('DOMContentLoaded', () => {
     closeModals.forEach(btn => {
         btn.addEventListener('click', () => {
             modalOverlay.style.display = 'none';
+            if (modalLockIn) modalLockIn.style.display = 'none';
         });
     });
 
@@ -1406,6 +1689,7 @@ document.addEventListener('DOMContentLoaded', () => {
         btnNewColTrigger.addEventListener('click', () => {
             modalSelect.style.display = 'none';
             modalCreate.style.display = 'block';
+            if (modalLockIn) modalLockIn.style.display = 'none';
         });
     }
 
@@ -1414,6 +1698,7 @@ document.addEventListener('DOMContentLoaded', () => {
         backToSelect.addEventListener('click', () => {
             modalCreate.style.display = 'none';
             modalSelect.style.display = 'block';
+            if (modalLockIn) modalLockIn.style.display = 'none';
         });
     }
 
@@ -1555,4 +1840,218 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // --- SETTINGS SECTION ---
+    function initializeSettings() {
+        chrome.storage.local.get([
+            'trackingPaused',
+            'lockedOutSession',
+            'lockInSession',
+            'lockInDefaultDuration',
+            'autoSleepEnabled',
+            'autoSleepStart',
+            'autoSleepEnd',
+            'lockedOutShowStats',
+            'lockedOutInCalendar'
+        ], (result) => {
+            // Sleep mode toggle
+            const sleepToggle = document.getElementById('settings-sleep-mode-toggle');
+            if (sleepToggle) {
+                sleepToggle.checked = !!result.trackingPaused;
+                sleepToggle.addEventListener('change', (e) => {
+                    const paused = e.target.checked;
+                    chrome.storage.local.set({ trackingPaused: paused }, () => {
+                        isTrackingPaused = paused;
+                        setTrackingPausedUI(paused);
+                        showNotification(paused ? 'Sleep mode enabled' : 'Sleep mode disabled');
+                    });
+                });
+            }
+
+            // Locked out mode toggle
+            const lockedOutToggle = document.getElementById('settings-locked-out-toggle');
+            if (lockedOutToggle) {
+                lockedOutToggle.checked = !!(result.lockedOutSession && result.lockedOutSession.startTime);
+                lockedOutToggle.addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        startLockedOut();
+                    } else {
+                        stopLockedOut();
+                    }
+                });
+            }
+
+            const lockInDuration = document.getElementById('settings-lock-in-duration');
+            if (lockInDuration) {
+                lockInDuration.value = result.lockInDefaultDuration || 30;
+                lockInDuration.onchange = (e) => {
+                    const value = parseInt(e.target.value, 10);
+                    if (!value || value < 1) {
+                        e.target.value = result.lockInDefaultDuration || 30;
+                        showNotification('Lock In duration must be at least 1 minute');
+                        return;
+                    }
+
+                    chrome.storage.local.set({ lockInDefaultDuration: value }, () => {
+                        showNotification('Lock In duration updated');
+                    });
+                };
+            }
+
+            const exportDataBtn = document.getElementById('btn-export-data');
+            if (exportDataBtn && !exportDataBtn.dataset.bound) {
+                exportDataBtn.dataset.bound = 'true';
+                exportDataBtn.addEventListener('click', exportAppData);
+            }
+
+            const importDataBtn = document.getElementById('btn-import-data');
+            const importDataFile = document.getElementById('import-data-file');
+            if (importDataBtn && importDataFile && !importDataBtn.dataset.bound) {
+                importDataBtn.dataset.bound = 'true';
+                importDataBtn.addEventListener('click', () => {
+                    importDataFile.click();
+                });
+            }
+
+            if (importDataFile && !importDataFile.dataset.bound) {
+                importDataFile.dataset.bound = 'true';
+                importDataFile.addEventListener('change', (e) => {
+                    const [file] = e.target.files || [];
+                    importAppData(file);
+                    e.target.value = '';
+                });
+            }
+
+            updateLockInSettingsStatus(result.lockInSession);
+
+            // Auto-sleep enabled
+            const autoSleepEnabled = document.getElementById('settings-auto-sleep-enabled');
+            const autoSleepTimes = document.getElementById('auto-sleep-times');
+            if (autoSleepEnabled) {
+                autoSleepEnabled.checked = !!result.autoSleepEnabled;
+                if (autoSleepTimes) {
+                    autoSleepTimes.style.opacity = autoSleepEnabled.checked ? '1' : '0.5';
+                }
+                autoSleepEnabled.addEventListener('change', (e) => {
+                    const enabled = e.target.checked;
+                    chrome.storage.local.set({ autoSleepEnabled: enabled }, () => {
+                        if (autoSleepTimes) {
+                            autoSleepTimes.style.opacity = enabled ? '1' : '0.5';
+                        }
+                        showNotification(enabled ? 'Auto-sleep enabled' : 'Auto-sleep disabled');
+                        if (enabled) {
+                            checkAutoSleep();
+                        }
+                    });
+                });
+            }
+
+            // Auto-sleep times
+            const autoSleepStart = document.getElementById('auto-sleep-start');
+            const autoSleepEnd = document.getElementById('auto-sleep-end');
+            if (autoSleepStart) {
+                autoSleepStart.value = result.autoSleepStart || '22:00';
+                autoSleepStart.addEventListener('change', (e) => {
+                    chrome.storage.local.set({ autoSleepStart: e.target.value }, () => {
+                        showNotification('Auto-sleep start time updated');
+                        checkAutoSleep();
+                    });
+                });
+            }
+            if (autoSleepEnd) {
+                autoSleepEnd.value = result.autoSleepEnd || '07:00';
+                autoSleepEnd.addEventListener('change', (e) => {
+                    chrome.storage.local.set({ autoSleepEnd: e.target.value }, () => {
+                        showNotification('Auto-sleep end time updated');
+                        checkAutoSleep();
+                    });
+                });
+            }
+
+            // Locked out show in stats
+            const lockedOutShowStats = document.getElementById('settings-locked-out-show-stats');
+            if (lockedOutShowStats) {
+                lockedOutShowStats.checked = result.lockedOutShowStats !== false;
+                lockedOutShowStats.addEventListener('change', (e) => {
+                    chrome.storage.local.set({ lockedOutShowStats: e.target.checked }, () => {
+                        showNotification(e.target.checked ? 
+                            'Locked out sessions will show in stats' : 
+                            'Locked out sessions hidden from stats');
+                        renderStats();
+                    });
+                });
+            }
+
+            // Locked out in calendar
+            const lockedOutInCalendar = document.getElementById('settings-locked-out-in-calendar');
+            if (lockedOutInCalendar) {
+                lockedOutInCalendar.checked = result.lockedOutInCalendar !== false;
+                lockedOutInCalendar.addEventListener('change', (e) => {
+                    chrome.storage.local.set({ lockedOutInCalendar: e.target.checked }, () => {
+                        showNotification(e.target.checked ? 
+                            'Locked out sessions will appear in calendar' : 
+                            'Locked out sessions hidden from calendar');
+                    });
+                });
+            }
+        });
+
+        // Update locked out toggle when session changes
+        chrome.storage.onChanged.addListener((changes, area) => {
+            if (area === 'local' && changes.lockedOutSession) {
+                const lockedOutToggle = document.getElementById('settings-locked-out-toggle');
+                if (lockedOutToggle) {
+                    const session = changes.lockedOutSession.newValue;
+                    lockedOutToggle.checked = !!(session && session.startTime);
+                }
+            }
+
+            if (area === 'local' && changes.lockInSession) {
+                updateLockInSettingsStatus(changes.lockInSession.newValue);
+            }
+        });
+    }
+
+    // Check if auto-sleep should be enabled based on current time
+    function checkAutoSleep() {
+        chrome.storage.local.get(['autoSleepEnabled', 'autoSleepStart', 'autoSleepEnd', 'trackingPaused'], (result) => {
+            if (!result.autoSleepEnabled) return;
+
+            const now = new Date();
+            const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+            const startTime = result.autoSleepStart || '22:00';
+            const endTime = result.autoSleepEnd || '07:00';
+
+            let shouldBePaused = false;
+
+            // Check if current time is within sleep period
+            if (startTime < endTime) {
+                // Normal range (e.g., 08:00 to 17:00)
+                shouldBePaused = currentTime >= startTime && currentTime < endTime;
+            } else {
+                // Overnight range (e.g., 22:00 to 07:00)
+                shouldBePaused = currentTime >= startTime || currentTime < endTime;
+            }
+
+            const currentlyPaused = !!result.trackingPaused;
+
+            if (shouldBePaused && !currentlyPaused) {
+                chrome.storage.local.set({ trackingPaused: true }, () => {
+                    isTrackingPaused = true;
+                    setTrackingPausedUI(true);
+                    showNotification('Auto-sleep activated');
+                });
+            } else if (!shouldBePaused && currentlyPaused) {
+                chrome.storage.local.set({ trackingPaused: false }, () => {
+                    isTrackingPaused = false;
+                    setTrackingPausedUI(false);
+                    showNotification('Auto-sleep deactivated');
+                });
+            }
+        });
+    }
+
+    // Check auto-sleep every minute
+    setInterval(checkAutoSleep, 60000);
+    checkAutoSleep(); // Initial check
 });
