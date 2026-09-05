@@ -1,12 +1,19 @@
 document.addEventListener('DOMContentLoaded', () => {
     let currentDate = new Date();
     let taskHistory = [];
+    let goalTrackerGoals = [];
+    let goalTrackerEntries = {};
+    let goalWeekDate = getStartOfWeek(new Date());
+    let goalTimelineMode = 'good';
 
     // Load data once
-    chrome.storage.local.get(['taskHistory'], (result) => {
+    chrome.storage.local.get(['taskHistory', 'goalTrackerGoals', 'goalTrackerEntries'], (result) => {
         taskHistory = result.taskHistory || [];
+        goalTrackerGoals = result.goalTrackerGoals || [];
+        goalTrackerEntries = result.goalTrackerEntries || {};
         updateStats();
         renderCalendar();
+        renderGoalTracker();
     });
 
     // Event Listeners
@@ -34,6 +41,312 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnBack = document.getElementById('btn-back-cal');
     const dayTimeline = document.getElementById('day-timeline');
     const dayViewDate = document.getElementById('day-view-date');
+    const goalsButton = document.getElementById('goals-btn');
+    const goalTracker = document.getElementById('goal-tracker');
+    const goalWeekLabel = document.getElementById('goal-week-label');
+    const goalTableHead = document.getElementById('goal-table-head');
+    const goalTableBody = document.getElementById('goal-table-body');
+    const goalForm = document.getElementById('goal-create-form');
+    const goalNameInput = document.getElementById('goal-name-input');
+    const goalTypeInput = document.getElementById('goal-type-input');
+    const goalTargetField = document.getElementById('goal-target-field');
+    const goalTargetInput = document.getElementById('goal-target-input');
+    const goalGoodTimeline = document.getElementById('goal-good-timeline');
+    const goalBadTimeline = document.getElementById('goal-bad-timeline');
+    const goalTimelineHint = document.getElementById('goal-timeline-hint');
+
+    goalsButton.addEventListener('click', () => {
+        goalTracker.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+
+    document.getElementById('goal-prev-week').addEventListener('click', () => {
+        goalWeekDate.setDate(goalWeekDate.getDate() - 7);
+        renderGoalTracker();
+    });
+
+    document.getElementById('goal-next-week').addEventListener('click', () => {
+        goalWeekDate.setDate(goalWeekDate.getDate() + 7);
+        renderGoalTracker();
+    });
+
+    document.getElementById('goal-current-week').addEventListener('click', () => {
+        goalWeekDate = getStartOfWeek(new Date());
+        renderGoalTracker();
+    });
+
+    goalGoodTimeline.addEventListener('click', () => {
+        goalTimelineMode = 'good';
+        renderGoalTracker();
+    });
+
+    goalBadTimeline.addEventListener('click', () => {
+        goalTimelineMode = 'bad';
+        renderGoalTracker();
+    });
+
+    goalTypeInput.addEventListener('change', () => {
+        const isCountable = goalTypeInput.value === 'countable';
+        goalForm.classList.toggle('is-countable', isCountable);
+        goalTargetField.hidden = !isCountable;
+        goalTargetInput.required = isCountable;
+    });
+
+    goalForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+
+        const name = goalNameInput.value.trim();
+        const type = goalTypeInput.value === 'countable' ? 'countable' : 'checkoff';
+        const dailyTarget = type === 'countable' ? Number.parseInt(goalTargetInput.value, 10) : null;
+        if (!name || (type === 'countable' && (!Number.isFinite(dailyTarget) || dailyTarget < 1))) return;
+
+        goalTrackerGoals.push({
+            id: globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function'
+                ? globalThis.crypto.randomUUID()
+                : `goal-${Date.now()}`,
+            name,
+            type,
+            dailyTarget
+        });
+
+        chrome.storage.local.set({ goalTrackerGoals }, () => {
+            goalForm.reset();
+            goalForm.classList.remove('is-countable');
+            goalTargetField.hidden = true;
+            goalTargetInput.required = false;
+            renderGoalTracker();
+            goalNameInput.focus();
+        });
+    });
+
+    function getStartOfWeek(value) {
+        const date = new Date(value);
+        date.setHours(12, 0, 0, 0);
+        const daysSinceMonday = (date.getDay() + 6) % 7;
+        date.setDate(date.getDate() - daysSinceMonday);
+        return date;
+    }
+
+    function getDateKey(date) {
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    }
+
+    function getGoalWeekDays() {
+        const monday = getStartOfWeek(goalWeekDate);
+        return Array.from({ length: 7 }, (_, index) => {
+            const date = new Date(monday);
+            date.setDate(monday.getDate() + index);
+            return date;
+        });
+    }
+
+    function setGoalEntry(goalId, dateKey, value) {
+        if (!goalTrackerEntries[goalId]) goalTrackerEntries[goalId] = {};
+
+        if (value === false || value === '' || value === null || value === 0) {
+            delete goalTrackerEntries[goalId][dateKey];
+        } else {
+            goalTrackerEntries[goalId][dateKey] = value;
+        }
+
+        if (Object.keys(goalTrackerEntries[goalId]).length === 0) {
+            delete goalTrackerEntries[goalId];
+        }
+
+        chrome.storage.local.set({ goalTrackerEntries }, renderGoalTracker);
+    }
+
+    function deleteGoal(goal) {
+        if (!confirm(`Delete "${goal.name}" and its tracked history?`)) return;
+
+        goalTrackerGoals = goalTrackerGoals.filter((item) => item.id !== goal.id);
+        delete goalTrackerEntries[goal.id];
+        chrome.storage.local.set({ goalTrackerGoals, goalTrackerEntries }, renderGoalTracker);
+    }
+
+    function renderGoalTracker() {
+        if (!goalTableHead || !goalTableBody) return;
+
+        const isBadTimeline = goalTimelineMode === 'bad';
+        goalGoodTimeline.classList.toggle('good-active', !isBadTimeline);
+        goalBadTimeline.classList.toggle('bad-active', isBadTimeline);
+        goalGoodTimeline.setAttribute('aria-pressed', String(!isBadTimeline));
+        goalBadTimeline.setAttribute('aria-pressed', String(isBadTimeline));
+        goalForm.hidden = isBadTimeline;
+        goalTimelineHint.textContent = isBadTimeline
+            ? 'Completed goals are shown here. Uncheck one or lower its count to return it to Good Timeline.'
+            : 'Complete a goal and it will automatically move out of this view.';
+
+        const weekDays = getGoalWeekDays();
+        const todayKey = getDateKey(new Date());
+        const rangeStart = weekDays[0];
+        const rangeEnd = weekDays[6];
+        const startText = rangeStart.toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            ...(rangeStart.getFullYear() !== rangeEnd.getFullYear() ? { year: 'numeric' } : {})
+        });
+        const endText = rangeEnd.toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+        });
+        goalWeekLabel.textContent = `${startText} – ${endText}`;
+
+        goalTableHead.innerHTML = '';
+        const headerRow = document.createElement('tr');
+        const goalHeader = document.createElement('th');
+        goalHeader.textContent = 'Goal / Task';
+        headerRow.appendChild(goalHeader);
+
+        weekDays.forEach((date) => {
+            const header = document.createElement('th');
+            if (getDateKey(date) === todayKey) header.classList.add('goal-today');
+            header.textContent = date.toLocaleDateString('en-US', { weekday: 'short' });
+
+            const dateLabel = document.createElement('span');
+            dateLabel.className = 'goal-day-date';
+            dateLabel.textContent = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            header.appendChild(dateLabel);
+            headerRow.appendChild(header);
+        });
+
+        const progressHeader = document.createElement('th');
+        progressHeader.className = 'goal-progress-col';
+        progressHeader.textContent = 'Progress';
+        headerRow.appendChild(progressHeader);
+
+        const actionsHeader = document.createElement('th');
+        actionsHeader.className = 'goal-actions-col';
+        actionsHeader.setAttribute('aria-label', 'Actions');
+        headerRow.appendChild(actionsHeader);
+        goalTableHead.appendChild(headerRow);
+
+        goalTableBody.innerHTML = '';
+        if (goalTrackerGoals.length === 0) {
+            const emptyRow = document.createElement('tr');
+            const emptyCell = document.createElement('td');
+            emptyCell.className = 'goal-empty';
+            emptyCell.colSpan = 10;
+            emptyCell.textContent = isBadTimeline
+                ? 'No goals yet. Switch to Good Timeline to add one.'
+                : 'No goals yet. Add your first daily goal above.';
+            emptyRow.appendChild(emptyCell);
+            goalTableBody.appendChild(emptyRow);
+            return;
+        }
+
+        let visibleGoalCount = 0;
+        goalTrackerGoals.forEach((goal) => {
+            const row = document.createElement('tr');
+            const nameCell = document.createElement('td');
+            const name = document.createElement('div');
+            name.className = 'goal-name';
+            name.textContent = goal.name;
+            const type = document.createElement('div');
+            type.className = 'goal-type';
+            const dailyTarget = globalThis.GoalTrackerLogic.getDailyTarget(goal);
+            type.textContent = goal.type === 'countable' ? `Count · ${dailyTarget}/day` : 'Daily checkoff';
+            nameCell.append(name, type);
+            row.appendChild(nameCell);
+
+            let completedDays = 0;
+            let weeklyCount = 0;
+            let visibleCellCount = 0;
+            weekDays.forEach((date) => {
+                const dateKey = getDateKey(date);
+                const value = goalTrackerEntries[goal.id] && goalTrackerEntries[goal.id][dateKey];
+                const cell = document.createElement('td');
+                if (dateKey === todayKey) cell.classList.add('goal-today');
+
+                if (goal.type === 'countable') {
+                    const count = Number(value) || 0;
+                    const isCompleted = globalThis.GoalTrackerLogic.isEntryComplete(goal, value);
+                    weeklyCount += count;
+                    if (isCompleted) completedDays += 1;
+
+                    if (globalThis.GoalTrackerLogic.shouldShowEntry(goalTimelineMode, goal, value)) {
+                        visibleCellCount += 1;
+                        const input = document.createElement('input');
+                        input.className = 'goal-count-input';
+                        input.type = 'number';
+                        input.min = '0';
+                        input.step = '1';
+                        input.value = count || '';
+                        input.placeholder = '0';
+                        input.setAttribute('aria-label', `${goal.name} count for ${date.toLocaleDateString()}`);
+                        input.addEventListener('change', () => {
+                            const nextValue = Math.max(0, Number.parseInt(input.value, 10) || 0);
+                            setGoalEntry(goal.id, dateKey, nextValue);
+                        });
+                        cell.appendChild(input);
+                    } else {
+                        cell.classList.add('goal-cell-hidden');
+                    }
+                } else {
+                    const checked = value === true;
+                    if (checked) completedDays += 1;
+
+                    if (globalThis.GoalTrackerLogic.shouldShowEntry(goalTimelineMode, goal, value)) {
+                        visibleCellCount += 1;
+                        const input = document.createElement('input');
+                        input.className = 'goal-checkbox';
+                        input.type = 'checkbox';
+                        input.checked = checked;
+                        input.setAttribute('aria-label', `${goal.name} completed on ${date.toLocaleDateString()}`);
+                        input.addEventListener('change', () => {
+                            setGoalEntry(goal.id, dateKey, input.checked);
+                        });
+                        cell.appendChild(input);
+                    } else {
+                        cell.classList.add('goal-cell-hidden');
+                    }
+                }
+
+                row.appendChild(cell);
+            });
+
+            const progressCell = document.createElement('td');
+            const progress = document.createElement('div');
+            progress.className = 'goal-progress';
+            progress.textContent = goal.type === 'countable' ? `${weeklyCount}` : `${completedDays}/7`;
+            progressCell.appendChild(progress);
+            if (goal.type === 'countable') {
+                const detail = document.createElement('div');
+                detail.className = 'goal-progress-detail';
+                detail.textContent = `${completedDays}/7 targets`;
+                progressCell.appendChild(detail);
+            }
+            row.appendChild(progressCell);
+
+            const actionsCell = document.createElement('td');
+            const deleteButton = document.createElement('button');
+            deleteButton.className = 'goal-delete';
+            deleteButton.type = 'button';
+            deleteButton.textContent = '✕';
+            deleteButton.title = `Delete ${goal.name}`;
+            deleteButton.setAttribute('aria-label', `Delete ${goal.name}`);
+            deleteButton.addEventListener('click', () => deleteGoal(goal));
+            actionsCell.appendChild(deleteButton);
+            row.appendChild(actionsCell);
+
+            if (visibleCellCount > 0) {
+                goalTableBody.appendChild(row);
+                visibleGoalCount += 1;
+            }
+        });
+
+        if (visibleGoalCount === 0) {
+            const emptyRow = document.createElement('tr');
+            const emptyCell = document.createElement('td');
+            emptyCell.className = 'goal-empty';
+            emptyCell.colSpan = 10;
+            emptyCell.textContent = isBadTimeline
+                ? 'No completed goals are waiting in Bad Timeline this week.'
+                : 'Everything is complete for this week. Use Bad Timeline to review it.';
+            emptyRow.appendChild(emptyCell);
+            goalTableBody.appendChild(emptyRow);
+        }
+    }
 
     if(btnBack) {
         btnBack.addEventListener('click', () => {
@@ -197,7 +510,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Listen for storage changes to update dynamically
     chrome.storage.onChanged.addListener((changes, namespace) => {
-        if (namespace === 'local' && changes.taskHistory) {
+        if (namespace !== 'local') return;
+
+        if (changes.taskHistory) {
             taskHistory = changes.taskHistory.newValue || [];
             // If day view is open, we should probably update that too, 
             // but for now just update global or current view if we tracked state.
@@ -207,6 +522,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 renderCalendar();
             }
         }
+
+        let goalsChanged = false;
+        if (changes.goalTrackerGoals) {
+            goalTrackerGoals = changes.goalTrackerGoals.newValue || [];
+            goalsChanged = true;
+        }
+        if (changes.goalTrackerEntries) {
+            goalTrackerEntries = changes.goalTrackerEntries.newValue || {};
+            goalsChanged = true;
+        }
+        if (goalsChanged) renderGoalTracker();
     });
 
     function updateStats(dateStr = null) {

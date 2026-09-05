@@ -13,7 +13,7 @@
         .stat-label { font-size: 0.9rem; color: #6b7280; }
 
         /* Main Calendar Area */
-        .main { flex: 1; padding: 20px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; }
+        .main { flex: 1; padding: 20px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; overflow-y: auto; }
         
         .cal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-shrink: 0; }
         .cal-title { font-size: 2rem; font-weight: bold; }
@@ -27,7 +27,8 @@
             gap: 8px; 
             background: #e5e7eb; 
             border: 1px solid #e5e7eb;
-            flex: 1;
+            flex: 0 0 calc(100vh - 95px);
+            min-height: 560px;
             overflow: hidden;
         }
         
@@ -62,7 +63,8 @@
         .day-view {
             display: none;
             flex-direction: column;
-            flex: 1;
+            flex: 0 0 calc(100vh - 40px);
+            min-height: 560px;
             background: white;
             border-radius: 8px;
             overflow: hidden;
@@ -136,6 +138,124 @@
         }
         .task-time { font-size: 0.75rem; opacity: 0.8; margin-bottom: 2px; }
         .task-name { font-weight: bold; }
+
+        /* Weekly Goal Tracker */
+        .goal-tracker {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            margin-top: 24px;
+            margin-bottom: 20px;
+            padding: 20px;
+            flex-shrink: 0;
+        }
+        .goal-tracker-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 20px;
+            margin-bottom: 18px;
+        }
+        .goal-tracker-title { font-size: 1.5rem; font-weight: bold; color: #111827; }
+        .goal-tracker-subtitle { color: #6b7280; font-size: 0.9rem; margin-top: 4px; }
+        .goal-week-nav { display: flex; align-items: center; gap: 8px; }
+        .goal-week-nav button, .goal-scroll-btn {
+            padding: 8px 12px;
+            cursor: pointer;
+            background: white;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            color: #374151;
+            font-weight: 600;
+        }
+        .goal-week-nav button:hover, .goal-scroll-btn:hover { background: #f9fafb; }
+        .goal-week-label { min-width: 190px; text-align: center; font-weight: 600; color: #374151; }
+        .goal-timeline-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+        .goal-timeline-toggle {
+            display: inline-flex;
+            padding: 4px;
+            gap: 4px;
+            border-radius: 8px;
+            background: #f3f4f6;
+        }
+        .goal-timeline-toggle button {
+            padding: 8px 14px;
+            border: 0;
+            border-radius: 6px;
+            background: transparent;
+            color: #6b7280;
+            cursor: pointer;
+            font-weight: 700;
+        }
+        .goal-timeline-toggle button.good-active { background: #dcfce7; color: #166534; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+        .goal-timeline-toggle button.bad-active { background: #fee2e2; color: #991b1b; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+        .goal-timeline-hint { color: #6b7280; font-size: 0.82rem; }
+        .goal-create-form {
+            display: grid;
+            grid-template-columns: minmax(220px, 1fr) 170px auto;
+            gap: 10px;
+            align-items: end;
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 14px;
+            margin-bottom: 18px;
+        }
+        .goal-create-form[hidden] { display: none; }
+        .goal-create-form.is-countable { grid-template-columns: minmax(220px, 1fr) 170px 150px auto; }
+        .goal-field { display: flex; flex-direction: column; gap: 5px; }
+        .goal-field[hidden] { display: none; }
+        .goal-field label { color: #6b7280; font-size: 0.78rem; font-weight: 600; }
+        .goal-field input, .goal-field select {
+            box-sizing: border-box;
+            width: 100%;
+            height: 38px;
+            padding: 8px 10px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            background: white;
+            font: inherit;
+        }
+        .goal-add-btn {
+            height: 38px;
+            padding: 0 18px;
+            border: 0;
+            border-radius: 6px;
+            background: #2563eb;
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .goal-add-btn:hover { background: #1d4ed8; }
+        .goal-table-wrap { overflow-x: auto; border: 1px solid #e5e7eb; border-radius: 8px; }
+        .goal-table { width: 100%; min-width: 900px; border-collapse: collapse; table-layout: fixed; }
+        .goal-table th, .goal-table td { border-right: 1px solid #e5e7eb; border-bottom: 1px solid #e5e7eb; padding: 10px 8px; text-align: center; }
+        .goal-table th:last-child, .goal-table td:last-child { border-right: 0; }
+        .goal-table tbody tr:last-child td { border-bottom: 0; }
+        .goal-table th { background: #f9fafb; color: #4b5563; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; }
+        .goal-table th:first-child, .goal-table td:first-child { width: 180px; text-align: left; }
+        .goal-table th.goal-progress-col { width: 90px; }
+        .goal-table th.goal-actions-col { width: 55px; }
+        .goal-day-date { display: block; margin-top: 3px; color: #9ca3af; font-size: 0.72rem; font-weight: normal; text-transform: none; }
+        .goal-today { background: #eff6ff !important; }
+        .goal-cell-hidden { color: #d1d5db; }
+        .goal-name { font-weight: 600; color: #111827; overflow-wrap: anywhere; }
+        .goal-type { display: inline-block; margin-top: 4px; padding: 2px 6px; border-radius: 999px; background: #f3f4f6; color: #6b7280; font-size: 0.7rem; }
+        .goal-checkbox { width: 22px; height: 22px; cursor: pointer; accent-color: #2563eb; }
+        .goal-count-input { width: 58px; padding: 6px; border: 1px solid #d1d5db; border-radius: 5px; text-align: center; font: inherit; }
+        .goal-count-input:focus { outline: 2px solid #bfdbfe; border-color: #2563eb; }
+        .goal-progress { font-weight: bold; color: #2563eb; font-size: 0.85rem; }
+        .goal-progress-detail { color: #9ca3af; font-size: 0.68rem; margin-top: 2px; }
+        .goal-delete { border: 0; background: transparent; color: #ef4444; cursor: pointer; font-size: 1rem; padding: 6px; border-radius: 4px; }
+        .goal-delete:hover { background: #fef2f2; }
+        .goal-empty { padding: 28px !important; color: #9ca3af; text-align: center !important; }
+
+        @media (max-width: 1050px) {
+            .goal-tracker-header { flex-direction: column; }
+            .goal-timeline-bar { align-items: flex-start; flex-direction: column; }
+            .goal-create-form { grid-template-columns: 1fr 1fr; }
+            .goal-create-form.is-countable { grid-template-columns: 1fr 1fr; }
+        }
     </style>
 </head>
 <body>
@@ -163,6 +283,7 @@
         <div class="cal-header" id="cal-header-main">
             <div class="cal-title" id="cal-month-year">November 2025</div>
             <div class="cal-nav">
+                <button id="goals-btn" class="goal-scroll-btn">Weekly Goals</button>
                 <button id="prev-month">&larr; Prev</button>
                 <button id="today-btn">Today</button>
                 <button id="next-month">Next &rarr;</button>
@@ -184,8 +305,58 @@
                 </div>
             </div>
         </div>
+
+        <section class="goal-tracker" id="goal-tracker" aria-labelledby="goal-tracker-heading">
+            <div class="goal-tracker-header">
+                <div>
+                    <div class="goal-tracker-title" id="goal-tracker-heading">Weekly Goal Tracker</div>
+                    <div class="goal-tracker-subtitle">Completed entries leave Good Timeline and can be restored from Bad Timeline.</div>
+                </div>
+                <div class="goal-week-nav" aria-label="Goal tracker week navigation">
+                    <button id="goal-prev-week" aria-label="Previous week">&larr;</button>
+                    <button id="goal-current-week">This week</button>
+                    <div class="goal-week-label" id="goal-week-label"></div>
+                    <button id="goal-next-week" aria-label="Next week">&rarr;</button>
+                </div>
+            </div>
+
+            <div class="goal-timeline-bar">
+                <div class="goal-timeline-toggle" role="group" aria-label="Goal timeline view">
+                    <button id="goal-good-timeline" type="button" aria-pressed="true">Good Timeline</button>
+                    <button id="goal-bad-timeline" type="button" aria-pressed="false">Bad Timeline</button>
+                </div>
+                <div class="goal-timeline-hint" id="goal-timeline-hint"></div>
+            </div>
+
+            <form class="goal-create-form" id="goal-create-form">
+                <div class="goal-field">
+                    <label for="goal-name-input">Goal or task</label>
+                    <input id="goal-name-input" type="text" maxlength="80" placeholder="e.g. Read for 20 minutes" required>
+                </div>
+                <div class="goal-field">
+                    <label for="goal-type-input">Tracking type</label>
+                    <select id="goal-type-input">
+                        <option value="checkoff" selected>Daily checkoff</option>
+                        <option value="countable">Daily count</option>
+                    </select>
+                </div>
+                <div class="goal-field" id="goal-target-field" hidden>
+                    <label for="goal-target-input">Daily target</label>
+                    <input id="goal-target-input" type="number" min="1" step="1" value="1">
+                </div>
+                <button class="goal-add-btn" type="submit">Add goal</button>
+            </form>
+
+            <div class="goal-table-wrap">
+                <table class="goal-table">
+                    <thead id="goal-table-head"></thead>
+                    <tbody id="goal-table-body"></tbody>
+                </table>
+            </div>
+        </section>
     </div>
 
+    <script src="goal-tracker-logic.js"></script>
     <script src="dashboard.js"></script>
 </body>
 </html>

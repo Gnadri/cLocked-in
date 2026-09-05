@@ -1,11 +1,11 @@
-let currentDomain = null;
+importScripts('site-matching.js');
 
 // Helper to extract domain
 function getDomain(url) {
   try {
     const u = new URL(url);
     if (u.protocol.startsWith('http')) {
-      return u.hostname;
+      return globalThis.SiteMatching.normalizeHostname(u.hostname);
     }
   } catch (e) {
     return null;
@@ -19,16 +19,7 @@ function getLocalTodayStr() {
 }
 
 function isDomainInCollection(domain, collection) {
-  if (!collection || !collection.items) return false;
-
-  return collection.items.some((item) => {
-    const cleanItem = item.toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
-    const cleanDomain = domain.toLowerCase();
-
-    return cleanDomain === cleanItem ||
-      cleanDomain.endsWith('.' + cleanItem) ||
-      cleanItem.endsWith('.' + cleanDomain);
-  });
+  return globalThis.SiteMatching.domainMatchesCollection(domain, collection);
 }
 
 function getCollectionUsageSeconds(dayData, collection) {
@@ -42,24 +33,33 @@ function getCollectionUsageSeconds(dayData, collection) {
   }, 0);
 }
 
-// Update the current domain when tabs change or update
-chrome.tabs.onActivated.addListener(async (activeInfo) => {
-  const tab = await chrome.tabs.get(activeInfo.tabId);
-  currentDomain = getDomain(tab.url);
-});
-
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'complete' && tab.active) {
-    currentDomain = getDomain(tab.url);
+function recordLockInSegment(trackerData, taskHistory, session, endTime) {
+  if (!session || !session.startTime || !endTime || endTime <= session.startTime) {
+    return { trackerData, taskHistory };
   }
-});
 
-// THE TICKER: Run every second
-setInterval(() => {
-  // Query active tab to ensure we are checking the actual current site
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    if (!tabs || tabs.length === 0) return;
-    const activeTab = tabs[0];
+  const date = getLocalTodayStr();
+  const nextTrackerData = trackerData || {};
+  const nextTaskHistory = taskHistory || [];
+  const elapsedSeconds = Math.floor((endTime - session.startTime) / 1000);
+
+  if (!nextTrackerData[date]) nextTrackerData[date] = {};
+  if (!nextTrackerData[date]['Locked In']) nextTrackerData[date]['Locked In'] = 0;
+  nextTrackerData[date]['Locked In'] += elapsedSeconds;
+
+  nextTaskHistory.push({
+    name: 'Locked In',
+    startTime: session.startTime,
+    endTime,
+    date,
+    color: '#15803d'
+  });
+
+  return { trackerData: nextTrackerData, taskHistory: nextTaskHistory };
+}
+
+function processTab(activeTab, trackUsage = false) {
+    if (!activeTab) return;
     const currentUrl = activeTab.url;
     const domain = getDomain(currentUrl);
 
@@ -68,19 +68,20 @@ setInterval(() => {
 
     const today = getLocalTodayStr();
 
-    chrome.storage.local.get(['trackerData', 'collections', 'activeActivities', 'trackingPaused', 'siteSettings', 'lockInSession'], (result) => {
+    chrome.storage.local.get(['trackerData', 'collections', 'activeActivities', 'trackingPaused', 'siteSettings', 'lockInSession', 'taskHistory'], (result) => {
       let data = result.trackerData || {};
       const collections = result.collections || [];
       let activeActivities = result.activeActivities || [];
       const trackingPaused = !!result.trackingPaused;
       const siteSettings = result.siteSettings || {};
       let lockInSession = result.lockInSession || null;
+      let taskHistory = result.taskHistory || [];
 
       // Check if any activity expired
       let changed = false;
       const now = Date.now();
       activeActivities = activeActivities.filter(act => {
-          if (act.endTime && now > act.endTime) {
+          if (!act.isPaused && act.endTime && now > act.endTime) {
               changed = true;
               return false; 
           }
@@ -91,13 +92,15 @@ setInterval(() => {
           chrome.storage.local.set({activeActivities});
       }
 
-      // Check if current URL is an exception in ANY active activity
+      const runningActivities = activeActivities.filter((activity) => !activity.isPaused);
+
+      // Check if current URL is an exception in ANY running activity
       // If so, do NOT count towards usage stats
-      const isGlobalException = activeActivities.some(act => 
-          act.exceptions && act.exceptions.some(ex => currentUrl.includes(ex))
+      const isGlobalException = runningActivities.some(act =>
+          act.exceptions && act.exceptions.some(ex => globalThis.SiteMatching.isUrlException(currentUrl, ex))
       );
 
-      if (!isGlobalException && !trackingPaused) {
+      if (trackUsage && !isGlobalException && !trackingPaused) {
           // Initialize day if not exists
           if (!data[today]) data[today] = {};
           
@@ -128,12 +131,7 @@ setInterval(() => {
           }
       }
 
-      // Helper to check if domain is in a collection
-      const findCollection = (d) => {
-          return collections.find(col => isDomainInCollection(d, col));
-      };
-
-      const col = findCollection(domain);
+      const matchingCollections = globalThis.SiteMatching.getMatchingCollections(domain, collections);
 
       if (lockInSession && lockInSession.startTime) {
           const lockInCollection = collections.find((collection) => collection.id === lockInSession.categoryId);
@@ -152,18 +150,23 @@ setInterval(() => {
               }
 
               if (!nextLockInSession.isBlocked && usedSeconds >= (nextLockInSession.thresholdSeconds || 0)) {
+                  const blockedAt = Date.now();
+                  const recorded = recordLockInSegment(data, taskHistory, nextLockInSession, blockedAt);
+                  data = recorded.trackerData;
+                  taskHistory = recorded.taskHistory;
                   nextLockInSession = {
                       ...nextLockInSession,
                       usedSeconds,
                       isBlocked: true,
                       requiresTaskCompletion: true,
-                      blockedAt: Date.now()
+                      blockedAt,
+                      segmentRecordedAt: blockedAt
                   };
               }
 
               if (JSON.stringify(nextLockInSession) !== JSON.stringify(lockInSession)) {
                   lockInSession = nextLockInSession;
-                  chrome.storage.local.set({ lockInSession });
+                  chrome.storage.local.set({ lockInSession, trackerData: data, taskHistory });
               } else {
                   lockInSession = nextLockInSession;
               }
@@ -175,31 +178,22 @@ setInterval(() => {
           }
       }
 
-      if (col) {
-          // Check if category is manually blocked
-          if (col.isBlocked) {
-              shouldBlock = true;
-          }
-
-          // Check if category is blocked by ANY active activity
-          activeActivities.forEach(act => {
-              if (act.blockedCategoryIds && act.blockedCategoryIds.includes(col.id)) {
-                  // This activity wants to block this site
-                  // Check exceptions for THIS activity
-                  const isException = act.exceptions && act.exceptions.some(ex => currentUrl.includes(ex));
-                  
-                  if (!isException) {
-                      shouldBlock = true;
-                      if (act.redirectUrl) {
-                          // Ensure protocol exists
-                          let url = act.redirectUrl;
-                          if (!url.startsWith('http')) url = 'https://' + url;
-                          redirectTarget = url;
-                      }
-                  }
-              }
-          });
+      if (matchingCollections.some((collection) => collection.isBlocked)) {
+          shouldBlock = true;
       }
+
+      // A site can belong to more than one category. Block when any matching
+      // category is selected by any currently running activity.
+      runningActivities.forEach((activity) => {
+          if (globalThis.SiteMatching.activityBlocksCollections(currentUrl, matchingCollections, activity)) {
+              shouldBlock = true;
+              if (activity.redirectUrl) {
+                  let url = activity.redirectUrl;
+                  if (!url.startsWith('http')) url = 'https://' + url;
+                  redirectTarget = url;
+              }
+          }
+      });
 
       if (shouldBlock) {
           // Avoid redirect loops
@@ -212,5 +206,37 @@ setInterval(() => {
           chrome.tabs.update(activeTab.id, { url: redirectTarget });
       }
     });
+}
+
+// Enforce immediately when a user activates or navigates a tab. This also
+// wakes Manifest V3 service workers that may have suspended the ticker.
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
+  try {
+    const tab = await chrome.tabs.get(activeInfo.tabId);
+    processTab(tab, false);
+  } catch (error) {
+    // The tab can disappear before chrome.tabs.get resolves.
+  }
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (tab.active && (changeInfo.url || changeInfo.status === 'complete')) {
+    processTab(tab, false);
+  }
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  const enforcementKeys = ['activeActivities', 'collections', 'siteSettings', 'lockInSession'];
+  if (areaName !== 'local' || !enforcementKeys.some((key) => changes[key])) return;
+
+  chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
+    if (tabs && tabs[0]) processTab(tabs[0], false);
+  });
+});
+
+// Track usage while the worker is awake and continuously re-check enforcement.
+setInterval(() => {
+  chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
+    if (tabs && tabs[0]) processTab(tabs[0], true);
   });
 }, 1000);

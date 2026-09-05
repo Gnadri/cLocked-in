@@ -606,16 +606,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function domainMatchesCollection(domain, collection) {
-        if (!collection || !collection.items) return false;
-
-        return collection.items.some((item) => {
-            const cleanItem = item.toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
-            const cleanDomain = domain.toLowerCase();
-
-            return cleanDomain === cleanItem ||
-                cleanDomain.endsWith('.' + cleanItem) ||
-                cleanItem.endsWith('.' + cleanDomain);
-        });
+        return globalThis.SiteMatching.domainMatchesCollection(domain, collection);
     }
 
     function getCollectionUsageSeconds(dayData, collection) {
@@ -1032,7 +1023,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         usedSeconds: 0,
                         isBlocked: false,
                         requiresTaskCompletion: false,
-                        blockedAt: null
+                        blockedAt: null,
+                        segmentRecordedAt: null
                     }
                     : lockInSession;
 
@@ -1178,14 +1170,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnDeleteSiteSettings = document.getElementById('btn-delete-site-settings');
 
     function normalizeDomainInput(value) {
-        const trimmed = value.trim();
-        if (!trimmed) return '';
-        try {
-            const url = trimmed.includes('://') ? new URL(trimmed) : new URL(`https://${trimmed}`);
-            return url.hostname;
-        } catch (e) {
-            return trimmed.split('/')[0].toLowerCase();
-        }
+        return globalThis.SiteMatching.normalizeHostname(value);
     }
 
     function renderSiteSettingsSelect() {
@@ -1493,12 +1478,49 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function recordLockInSegment(trackerData, taskHistory, session, endTime) {
+        if (!session || !session.startTime || !endTime || endTime <= session.startTime) {
+            return { trackerData, taskHistory };
+        }
+
+        const date = getLocalTodayStr();
+        const elapsedSeconds = Math.floor((endTime - session.startTime) / 1000);
+
+        if (!trackerData[date]) trackerData[date] = {};
+        if (!trackerData[date]['Locked In']) trackerData[date]['Locked In'] = 0;
+        trackerData[date]['Locked In'] += elapsedSeconds;
+
+        taskHistory.push({
+            name: 'Locked In',
+            startTime: session.startTime,
+            endTime,
+            date,
+            color: '#15803d'
+        });
+
+        return { trackerData, taskHistory };
+    }
+
     function stopLockIn() {
-        chrome.storage.local.set({ lockInSession: null }, () => {
-            if (modalLockIn) modalLockIn.style.display = 'none';
-            modalOverlay.style.display = 'none';
-            updateLockInUI();
-            showNotification('Lock In disabled');
+        chrome.storage.local.get(['lockInSession', 'trackerData', 'taskHistory'], (result) => {
+            const session = result.lockInSession;
+            const trackerData = result.trackerData || {};
+            const taskHistory = result.taskHistory || [];
+            const endTime = session && session.isBlocked && session.blockedAt ? session.blockedAt : Date.now();
+            const recorded = session && !session.segmentRecordedAt
+                ? recordLockInSegment(trackerData, taskHistory, session, endTime)
+                : { trackerData, taskHistory };
+
+            chrome.storage.local.set({
+                lockInSession: null,
+                trackerData: recorded.trackerData,
+                taskHistory: recorded.taskHistory
+            }, () => {
+                if (modalLockIn) modalLockIn.style.display = 'none';
+                modalOverlay.style.display = 'none';
+                updateLockInUI();
+                showNotification('Lock In disabled');
+            });
         });
     }
 
@@ -1579,7 +1601,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 baselineSeconds,
                 usedSeconds: 0,
                 isBlocked: false,
-                requiresTaskCompletion: false
+                requiresTaskCompletion: false,
+                segmentRecordedAt: null
             };
 
             chrome.storage.local.set({
